@@ -1,16 +1,27 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { ChevronsDownUp, ChevronsUpDown, FilePlus, FolderPlus, RefreshCw } from "lucide-vue-next";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FilePlus,
+  FolderPlus,
+  FolderTree,
+  RefreshCw,
+} from "lucide-vue-next";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import TreeNode from "./TreeNode.vue";
 import OutlinePanel from "./OutlinePanel.vue";
 import type { FileNode } from "../lib/api";
 import {
+  closeVault,
   createFolder,
   createNote,
   deleteEntry,
   moveEntry,
   openMenu,
   openNote,
+  openVault,
+  pickVault,
   refreshNotes,
   refreshTree,
   renameEntry,
@@ -105,6 +116,39 @@ function toggleFolders() {
   const next: Record<string, boolean> = {};
   for (const path of folders) next[path] = true;
   store.expanded = next;
+}
+
+function baseName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/** 仓库页脚菜单：切换仓库、最近打开、在资源管理器里显示、关闭。 */
+function vaultMenu(event: MouseEvent) {
+  const current = store.vault?.path;
+  const items: MenuItem[] = [
+    { label: "打开其他仓库…", shortcut: "Ctrl+O", action: () => void pickVault() },
+  ];
+
+  const recents = store.settings.recentVaults.filter((path) => path !== current);
+  if (recents.length) {
+    items.push({ separator: true });
+    for (const path of recents.slice(0, 6)) {
+      items.push({ label: `切换到 ${baseName(path)}`, action: () => void openVault(path) });
+    }
+  }
+
+  if (current) {
+    items.push({ separator: true });
+    items.push({
+      label: "在资源管理器中显示",
+      action: () => void revealItemInDir(current).catch(() => undefined),
+    });
+  }
+
+  items.push({ separator: true });
+  items.push({ label: "关闭仓库", danger: true, action: () => void closeVault() });
+
+  openMenu(event, items);
 }
 
 function onRootDragOver(event: DragEvent) {
@@ -218,6 +262,13 @@ function highlight(text: string, query: string): string {
         </div>
       </div>
     </template>
+
+    <!-- 仓库页脚：切换 / 管理当前仓库 -->
+    <button class="vault-footer" :title="store.vault?.path ?? ''" @click="vaultMenu">
+      <FolderTree :size="15" :stroke-width="1.8" class="vault-icon" />
+      <span class="vault-footer-name">{{ store.vault?.name ?? "未打开仓库" }}</span>
+      <ChevronsUpDown :size="13" :stroke-width="2" class="vault-caret" />
+    </button>
   </aside>
 </template>
 

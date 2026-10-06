@@ -202,6 +202,20 @@ class TableWidget extends WidgetType {
   }
 }
 
+/**
+ * 折叠标记：默认藏着，鼠标移到行号槽或光标停在那一行时才露出来。
+ * CodeMirror 自带的 `⌄`/`›` 文字标记在宽槽里显得很突兀，这里换成小箭头。
+ */
+function foldMarker(open: boolean): HTMLElement {
+  const marker = document.createElement("span");
+  marker.className = "cm-fold-marker";
+  marker.setAttribute("aria-hidden", "true");
+  marker.innerHTML = open
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+  return marker;
+}
+
 export interface LivePreviewOptions {
   /** 把笔记里的图片地址换成 webview 能加载的地址 */
   imageSource?: (url: string) => string | null;
@@ -514,6 +528,19 @@ function baseTheme(dark: boolean): Extension {
       ".cm-code-line": { backgroundColor: "var(--code-bg)" },
       ".cm-code-line-first": { borderRadius: "8px 8px 0 0", paddingTop: "5px" },
       ".cm-code-line-last": { borderRadius: "0 0 8px 8px", paddingBottom: "5px" },
+      // 折叠槽：窄一点，标记平时不显示，只在悬停折叠槽或光标所在行出现
+      ".cm-foldGutter": { width: "13px" },
+      ".cm-foldGutter .cm-gutterElement": { opacity: "0", transition: "opacity 0.12s" },
+      ".cm-foldGutter:hover .cm-gutterElement": { opacity: "1" },
+      ".cm-foldGutter .cm-gutterElement.cm-activeLineGutter": { opacity: "1" },
+      ".cm-fold-marker": {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--text-faint)",
+        cursor: "pointer",
+      },
+      ".cm-fold-marker:hover": { color: "var(--accent)" },
       ".cm-quote-line": {
         borderLeft: "3px solid var(--border-strong)",
         paddingLeft: "14px",
@@ -639,7 +666,7 @@ function buildExtensions(options: EditorOptions, compartments: EditorCompartment
     highlightActiveLineGutter(),
     highlightSpecialChars(),
     history(),
-    foldGutter(),
+    foldGutter({ markerDOM: foldMarker }),
     drawSelection(),
     dropCursor(),
     EditorState.allowMultipleSelections.of(true),

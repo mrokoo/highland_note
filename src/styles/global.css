@@ -859,6 +859,50 @@ body.resizing .pane-splitter::after {
   color: var(--danger);
 }
 
+/* 仓库页脚：固定在列表面板底部，点开就是切换 / 管理菜单 */
+.vault-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.vault-footer:hover {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.vault-footer .vault-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.vault-footer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-footer .vault-caret {
+  flex: none;
+  opacity: 0;
+  color: var(--text-faint);
+  transition: opacity 0.12s;
+}
+
+.vault-footer:hover .vault-caret {
+  opacity: 1;
+}
+
 /* ---------------------------------------------------------- 右侧图标栏 + 面板 */
 
 .right-side {

@@ -321,9 +321,6 @@ onBeforeUnmount(() => {
           <path d="M2.5 19.5 9 8l4 6.5L15.5 11l6 8.5z" />
         </svg>
         <span class="app-title">Highland Note</span>
-        <span v-if="store.vault" class="vault-name" :title="store.vault.path">
-          {{ store.vault.name }}
-        </span>
       </div>
 
       <span class="spacer" />
