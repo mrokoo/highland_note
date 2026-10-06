@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import TreeNode from "./TreeNode.vue";
+import OutlinePanel from "./OutlinePanel.vue";
 import type { FileNode } from "../lib/api";
 import {
   createFolder,
@@ -113,15 +114,6 @@ function highlight(text: string, query: string): string {
 
 <template>
   <aside class="sidebar" :style="{ width: `${store.settings.sidebarWidth}px` }">
-    <div class="sidebar-tabs">
-      <button :class="{ active: store.sidebarTab === 'files' }" @click="store.sidebarTab = 'files'">
-        文件
-      </button>
-      <button :class="{ active: store.sidebarTab === 'search' }" @click="store.sidebarTab = 'search'">
-        搜索
-      </button>
-    </div>
-
     <template v-if="store.sidebarTab === 'files'">
       <div class="sidebar-actions">
         <button class="icon-button" title="新建笔记 (Ctrl+N)" @click="createNote('')">
@@ -164,6 +156,10 @@ function highlight(text: string, query: string): string {
           {{ store.treeLoading ? "正在读取…" : "这个仓库里还没有笔记" }}
         </div>
       </div>
+    </template>
+
+    <template v-else-if="store.sidebarTab === 'outline'">
+      <OutlinePanel />
     </template>
 
     <template v-else>

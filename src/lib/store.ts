@@ -5,6 +5,7 @@ import {
   folderOf,
   titleOf,
   type FileNode,
+  type LinkReport,
   type NoteMeta,
   type SearchHit,
   type Settings,
@@ -57,6 +58,9 @@ export interface MenuState {
   items: MenuItem[];
 }
 
+/** 列表面板有哪几页，对应最左侧工具栏的图标。 */
+export type SidebarTab = "files" | "search" | "outline";
+
 const defaultSettings: Settings = {
   recentVaults: [],
   lastVault: null,
@@ -66,6 +70,8 @@ const defaultSettings: Settings = {
   sidebarWidth: 268,
   showSidebar: true,
   showLineNumbers: true,
+  showRightPanel: false,
+  rightPanelWidth: 300,
   editorWidth: 0,
   splitRatio: 0.5,
 };
@@ -92,13 +98,16 @@ export const store = reactive({
   searchQuery: "",
   searchHits: [] as SearchHit[],
   searching: false,
-  sidebarTab: "files" as "files" | "search",
+  sidebarTab: "files" as SidebarTab,
   cursor: { line: 1, col: 1, selected: 0 },
   toast: "",
   prompt: null as PromptState | null,
   confirm: null as ConfirmState | null,
   /** 当前打开的自定义右键菜单 */
   menu: null as MenuState | null,
+  /** 当前笔记的出链与反向链接 */
+  links: null as LinkReport | null,
+  linksLoading: false,
   quickSwitcher: false,
   quickQuery: "",
   quickIndex: 0,
@@ -622,6 +631,38 @@ export async function runSearch() {
   } finally {
     store.searching = false;
   }
+}
+
+// ------------------------------------------------------------------ 链接与反链
+
+let linksTimer: number | undefined;
+
+/** 重新计算当前笔记的出链与反链（Rust 侧按 mtime 增量扫描，开销不大）。 */
+export async function refreshLinks() {
+  if (linksTimer) {
+    clearTimeout(linksTimer);
+    linksTimer = undefined;
+  }
+  const tab = activeTab.value;
+  if (!tab || !store.vault) {
+    store.links = null;
+    return;
+  }
+  store.linksLoading = true;
+  try {
+    store.links = await api.linkReport(tab.path);
+  } catch {
+    store.links = null;
+  } finally {
+    store.linksLoading = false;
+  }
+}
+
+/** 编辑过程中的刷新做防抖，别每敲一个字就重算一次。 */
+export function scheduleLinksRefresh(delay = 700) {
+  if (!store.settings.showRightPanel) return;
+  if (linksTimer) clearTimeout(linksTimer);
+  linksTimer = setTimeout(() => void refreshLinks(), delay);
 }
 
 // ------------------------------------------------------------------ 快速切换

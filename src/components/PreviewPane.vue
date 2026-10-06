@@ -11,6 +11,7 @@ import {
   type MenuItem,
 } from "../lib/store";
 import { copyText } from "../lib/clipboard";
+import { resolveAssetUrl } from "../lib/assets";
 
 const html = ref("");
 const body = ref<HTMLElement | null>(null);
@@ -19,7 +20,8 @@ let timer: number | undefined;
 function refresh() {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
-    html.value = activeTab.value ? renderMarkdown(activeTab.value.content) : "";
+    const tab = activeTab.value;
+    html.value = tab ? renderMarkdown(tab.content, (url) => resolveAssetUrl(url, tab.path)) : "";
   }, 110);
 }
 

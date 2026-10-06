@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { activateTab, closeAllTabs, closeOtherTabs, closeTab, openMenu, store } from "../lib/store";
+import { activateTab, closeAllTabs, closeOtherTabs, closeTab, createNote, openMenu, store } from "../lib/store";
 import { copyText } from "../lib/clipboard";
 
 function tabMenu(event: MouseEvent, path: string) {
@@ -29,5 +29,11 @@ function tabMenu(event: MouseEvent, path: string) {
       <span class="tab-title">{{ tab.title }}</span>
       <button class="tab-close" title="关闭 (Ctrl+W)" @click.stop="closeTab(tab.path)">✕</button>
     </div>
+
+    <button class="tab-new" title="新建笔记 · Ctrl+N" @click="createNote('')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
   </div>
 </template>

@@ -12,6 +12,7 @@ import {
   placeholder,
   Decoration,
   ViewPlugin,
+  WidgetType,
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -58,13 +59,14 @@ const markdownHighlight = HighlightStyle.define([
   { tag: t.labelName, color: "var(--accent)" },
 ]);
 
-/** 光标不在本行时折叠掉的 Markdown 标记（实时预览）。 */
+/** 光标不在本行时折叠掉的 Markdown 标记（所见即所得）。 */
 const HIDE_MARKS = new Set([
   "HeaderMark",
   "EmphasisMark",
   "CodeMark",
   "QuoteMark",
   "LinkMark",
+  "URL",
   "StrikethroughMark",
 ]);
 
@@ -72,51 +74,236 @@ function selectionTouchesLine(state: EditorState, from: number, to: number): boo
   return state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 }
 
-function buildLivePreview(view: EditorView): DecorationSet {
-  const widgets: Range<Decoration>[] = [];
+/** 行内图片：直接渲染出来，点一下会退回源码编辑。 */
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly alt: string,
+  ) {
+    super();
+  }
+
+  eq(other: ImageWidget) {
+    return other.src === this.src && other.alt === this.alt;
+  }
+
+  toDOM() {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-image";
+    const img = document.createElement("img");
+    img.src = this.src;
+    img.alt = this.alt;
+    img.loading = "lazy";
+    wrap.appendChild(img);
+    return wrap;
+  }
+
+  // 返回 false：让编辑器接住点击，光标落进来就能改源码
+  ignoreEvent() {
+    return false;
+  }
+}
+
+/** 待办复选框：点一下直接改写 `[ ]` / `[x]`。 */
+class CheckboxWidget extends WidgetType {
+  constructor(
+    readonly checked: boolean,
+    readonly pos: number,
+    readonly view: EditorView,
+  ) {
+    super();
+  }
+
+  eq(other: CheckboxWidget) {
+    return other.checked === this.checked && other.pos === this.pos;
+  }
+
+  toDOM() {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "cm-task-box";
+    box.checked = this.checked;
+    box.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.view.dispatch({
+        changes: { from: this.pos, to: this.pos + 3, insert: this.checked ? "[ ]" : "[x]" },
+      });
+    });
+    return box;
+  }
+}
+
+/** 分隔线：`---` 渲染成一条线。 */
+class RuleWidget extends WidgetType {
+  toDOM() {
+    const rule = document.createElement("span");
+    rule.className = "cm-rule";
+    return rule;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+export interface LivePreviewOptions {
+  /** 把笔记里的图片地址换成 webview 能加载的地址 */
+  imageSource?: (url: string) => string | null;
+}
+
+function buildLivePreview(view: EditorView, options: LivePreviewOptions): DecorationSet {
+  const marks: Range<Decoration>[] = [];
+  const lines: Range<Decoration>[] = [];
+  const replaces: { from: number; to: number; decoration: Decoration }[] = [];
   const { state } = view;
-  let lastTo = -1;
+
+  const replace = (from: number, to: number, decoration: Decoration) => {
+    if (from >= to) return;
+    replaces.push({ from, to, decoration });
+  };
+
+  const decorateLines = (nodeFrom: number, nodeTo: number, base: string) => {
+    const first = state.doc.lineAt(nodeFrom).number;
+    const last = state.doc.lineAt(Math.min(nodeTo, state.doc.length)).number;
+    for (let number = first; number <= last; number += 1) {
+      const line = state.doc.line(number);
+      let cls = base;
+      if (number === first) cls += ` ${base}-first`;
+      if (number === last) cls += ` ${base}-last`;
+      lines.push(Decoration.line({ class: cls }).range(line.from));
+    }
+  };
+
+  // 代码块里的内容不参与行内规则（`[[x]]`、`#标签` 在代码里就是普通文本）
+  const codeLines = new Set<number>();
 
   for (const { from, to } of view.visibleRanges) {
+    const firstLine = state.doc.lineAt(from).number;
+    const lastLine = state.doc.lineAt(to).number;
+
+    // 第一遍：语法树，负责块级样式与标准 Markdown 标记
     syntaxTree(state).iterate({
       from,
       to,
       enter: (node) => {
-        if (!HIDE_MARKS.has(node.name)) return;
+        const name = node.name;
+
+        // 代码块 / 引用块是块级样式，光标在里面也要保留
+        if (name === "FencedCode" || name === "CodeBlock") {
+          decorateLines(node.from, node.to, "cm-code-line");
+          const first = state.doc.lineAt(node.from).number;
+          const last = state.doc.lineAt(Math.min(node.to, state.doc.length)).number;
+          for (let number = first; number <= last; number += 1) codeLines.add(number);
+          return;
+        }
+        if (name === "Blockquote") {
+          decorateLines(node.from, node.to, "cm-quote-line");
+          return;
+        }
+
         if (node.from === node.to) return;
-        // 游标所在行保留原始标记，方便直接编辑语法。
         const line = state.doc.lineAt(node.from);
+        // 光标所在行保留原始语法，方便直接改
         if (selectionTouchesLine(state, line.from, line.to)) return;
-        if (node.from < lastTo) return;
+
+        if (name === "HorizontalRule") {
+          replace(node.from, node.to, Decoration.replace({ widget: new RuleWidget() }));
+          return;
+        }
+
+        if (!HIDE_MARKS.has(name)) return;
         let end = node.to;
         if (
-          (node.name === "HeaderMark" || node.name === "QuoteMark") &&
+          (name === "HeaderMark" || name === "QuoteMark") &&
           state.doc.sliceString(end, end + 1) === " "
         ) {
           end += 1;
         }
-        widgets.push(Decoration.replace({}).range(node.from, end));
-        lastTo = end;
+        replace(node.from, end, Decoration.replace({}));
       },
     });
-  }
-  return Decoration.set(widgets, true);
-}
 
-const livePreview = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    constructor(view: EditorView) {
-      this.decorations = buildLivePreview(view);
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = buildLivePreview(update.view);
+    // 第二遍：语法树里没有节点的写法，按行匹配
+    for (let number = firstLine; number <= lastLine; number += 1) {
+      if (codeLines.has(number)) continue;
+      const line = state.doc.line(number);
+      if (selectionTouchesLine(state, line.from, line.to)) continue;
+
+      // 待办复选框
+      const task = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/.exec(line.text);
+      if (task) {
+        const start = line.from + task[1].length;
+        replace(
+          start,
+          start + 3,
+          Decoration.replace({
+            widget: new CheckboxWidget(task[2].toLowerCase() === "x", start, view),
+          }),
+        );
+      }
+
+      // 图片：直接按 `![alt](src)` 匹配，比依赖语法树稳
+      for (const match of line.text.matchAll(/!\[([^\]]*)\]\(([^)\s]+)\)/g)) {
+        const start = line.from + (match.index ?? 0);
+        const src = options.imageSource?.(match[2]);
+        if (src) {
+          replace(start, start + match[0].length, Decoration.replace({ widget: new ImageWidget(src, match[1]) }));
+        }
+      }
+
+      // [[双链]]：藏掉方括号与目标，只留显示名
+      for (const match of line.text.matchAll(/\[\[([^[\]\n]+)\]\]/g)) {
+        const start = line.from + (match.index ?? 0);
+        const inner = match[1];
+        const pipe = inner.lastIndexOf("|");
+        const displayStart = pipe >= 0 ? start + 2 + pipe + 1 : start + 2;
+        const displayEnd = start + match[0].length - 2;
+        if (displayEnd <= displayStart) continue;
+        replace(start, displayStart, Decoration.replace({}));
+        replace(displayEnd, start + match[0].length, Decoration.replace({}));
+        marks.push(Decoration.mark({ class: "cm-wikilink" }).range(displayStart, displayEnd));
+      }
+
+      // #标签
+      for (const match of line.text.matchAll(/(^|\s)#([\p{L}\p{N}_/-]+)/gu)) {
+        const start = line.from + (match.index ?? 0) + match[1].length;
+        marks.push(Decoration.mark({ class: "cm-hashtag" }).range(start, start + match[2].length + 1));
       }
     }
-  },
-  { decorations: (v) => v.decorations },
-);
+  }
+
+  // 替换类装饰不能重叠：起点相同时让「范围大的」先占位。
+  // 否则整段替换（比如图片部件）会被它内部的标记（`![`、URL）挤掉，
+  // 结果是部件消失、只剩下被隐藏标记后的残缺文本。
+  const ordered = [...replaces].sort((a, b) => a.from - b.from || b.to - a.to);
+  const kept: Range<Decoration>[] = [];
+  let cursor = -1;
+  for (const item of ordered) {
+    if (item.from < cursor) continue;
+    kept.push(item.decoration.range(item.from, item.to));
+    cursor = item.to;
+  }
+
+  return Decoration.set([...lines, ...kept, ...marks], true);
+}
+
+function livePreview(options: LivePreviewOptions) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = buildLivePreview(view, options);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.selectionSet || update.viewportChanged) {
+          this.decorations = buildLivePreview(update.view, options);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
+}
 
 function baseTheme(dark: boolean): Extension {
   return EditorView.theme(
@@ -176,6 +363,45 @@ function baseTheme(dark: boolean): Extension {
         backgroundColor: "var(--bg-hover)",
         color: "var(--text-strong)",
       },
+      // ---- 所见即所得：块级样式与行内小部件 ----
+      ".cm-code-line": { backgroundColor: "var(--code-bg)" },
+      ".cm-code-line-first": {
+        borderRadius: "8px 8px 0 0",
+        boxShadow: "inset 0 6px 0 var(--code-bg)",
+      },
+      ".cm-code-line-last": {
+        borderRadius: "0 0 8px 8px",
+        boxShadow: "inset 0 -6px 0 var(--code-bg)",
+      },
+      ".cm-quote-line": {
+        borderLeft: "3px solid var(--border-strong)",
+        paddingLeft: "14px",
+        color: "var(--text-muted)",
+      },
+      ".cm-image": { display: "inline-flex", flexDirection: "column", gap: "2px", verticalAlign: "top" },
+      ".cm-image img": {
+        maxWidth: "100%",
+        maxHeight: "420px",
+        borderRadius: "8px",
+        display: "block",
+        cursor: "pointer",
+      },
+      ".cm-image-alt": { color: "var(--text-faint)", fontSize: "0.8em" },
+      ".cm-wikilink": { color: "var(--accent)" },
+      ".cm-hashtag": { color: "var(--accent)" },
+      ".cm-task-box": {
+        accentColor: "var(--accent)",
+        width: "14px",
+        height: "14px",
+        verticalAlign: "-2px",
+        cursor: "pointer",
+      },
+      ".cm-rule": {
+        display: "inline-block",
+        width: "100%",
+        borderTop: "1px solid var(--border-strong)",
+        verticalAlign: "middle",
+      },
     },
     { dark },
   );
@@ -195,6 +421,8 @@ export interface EditorOptions {
   onChange: (text: string) => void;
   onCursor: (info: CursorInfo) => void;
   onWikilink?: (target: string) => void;
+  /** 把笔记里的图片地址换成 webview 能加载的地址 */
+  imageSource?: (url: string) => string | null;
 }
 
 export interface EditorHandle {
@@ -240,7 +468,7 @@ function buildExtensions(options: EditorOptions, compartments: EditorCompartment
     crosshairCursor(),
     highlightActiveLine(),
     highlightSelectionMatches(),
-    livePreview,
+    livePreview({ imageSource: options.imageSource }),
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     EditorView.lineWrapping,
     placeholder("开始输入… 支持 Markdown、[[双链]] 与 #标签"),

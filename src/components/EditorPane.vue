@@ -12,6 +12,7 @@ import {
   store,
   updateActiveContent,
 } from "../lib/store";
+import { resolveAssetUrl } from "../lib/assets";
 import { copyText, readClipboardText } from "../lib/clipboard";
 import {
   deleteSelection,
@@ -64,6 +65,14 @@ function scrollToLine(line: number) {
   view.dispatch({ selection: { anchor: target.from }, scrollIntoView: true });
   view.focus();
   store.scrollToLine = null;
+}
+
+/**
+ * 把笔记里写的图片地址解析成 webview 能加载的 asset 地址。
+ * 相对路径按「当前笔记所在目录」算，和 Markdown 的习惯一致。
+ */
+function resolveImage(url: string): string | null {
+  return resolveAssetUrl(url, activeTab.value?.path);
 }
 
 /** 编辑器里的右键菜单：编辑命令 + Markdown 排版。 */
@@ -160,6 +169,7 @@ onMounted(() => {
       store.cursor = info;
     },
     onWikilink: (target) => void openWikilink(target),
+    imageSource: resolveImage,
   });
   view = handle.view;
   mountedPath = store.activePath ?? "";

@@ -65,7 +65,6 @@ function onDrop(event: DragEvent) {
       :class="{ active, 'drop-target': isDropTarget }"
       :style="{ paddingLeft: `${6 + depth * 14}px` }"
       draggable="true"
-      :title="node.path"
       @click="onClick"
       @contextmenu="onContextMenu"
       @dragstart="onDragStart"
@@ -101,7 +100,8 @@ function onDrop(event: DragEvent) {
         <path d="M6 3h8l4 4v14H6z" />
         <path d="M14 3v4h4" />
       </svg>
-      <span class="label">{{ node.name }}</span>
+      <!-- 提示只挂在文件名上：挂在整行会让原生提示框正好盖住右边的「⋯」 -->
+      <span class="label" :title="node.path">{{ node.name }}</span>
       <span class="row-actions">
         <button title="更多操作" @click.stop="onContextMenu">⋯</button>
       </span>

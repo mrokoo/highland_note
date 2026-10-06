@@ -110,8 +110,24 @@ function taskLists(html: string): string {
   );
 }
 
-export function renderMarkdown(source: string): string {
-  const html = taskLists(md.render(source));
+/**
+ * 渲染 Markdown。`resolveImage` 用来把笔记里写的相对图片路径换成
+ * webview 能加载的地址（编辑区和预览区共用同一套解析）。
+ */
+export function renderMarkdown(
+  source: string,
+  resolveImage?: (url: string) => string | null,
+): string {
+  let html = taskLists(md.render(source));
+  if (resolveImage) {
+    html = html.replace(
+      /(<img\b[^>]*\bsrc=")([^"]*)(")/g,
+      (whole, prefix: string, url: string, suffix: string) => {
+        const resolved = resolveImage(url);
+        return resolved ? `${prefix}${resolved}${suffix}` : whole;
+      },
+    );
+  }
   return DOMPurify.sanitize(html, { ADD_ATTR: ["data-wikilink", "data-tag"] });
 }
 

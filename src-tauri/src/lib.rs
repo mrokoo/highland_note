@@ -1,15 +1,18 @@
+mod links;
 mod settings;
 mod vault;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
+use links::{LinkIndex, LinkReport};
 use vault::{FileNode, NoteContent, NoteMeta, SearchHit, Vault, VaultInfo};
 
-/// 全局状态：当前打开的仓库。
+/// 全局状态：当前打开的仓库，以及带缓存的链接索引。
 #[derive(Default)]
 struct AppState {
     vault: Mutex<Option<Vault>>,
+    links: Mutex<LinkIndex>,
 }
 
 fn with_vault<T>(
@@ -43,6 +46,15 @@ fn open_vault(app: AppHandle, state: State<'_, AppState>, path: String) -> Resul
     let info = Vault::new(root).info();
 
     *state.vault.lock().map_err(|_| "内部状态异常".to_string())? = Some(Vault::new(PathBuf::from(&info.path)));
+    // 换了仓库，链接索引整体作废
+    if let Ok(mut index) = state.links.lock() {
+        index.clear();
+    }
+
+    // 允许前端的 <img> 读取这个仓库里的图片（只放开当前仓库目录）
+    if let Err(error) = app.asset_protocol_scope().allow_directory(&info.path, true) {
+        eprintln!("放开图片目录失败：{error}");
+    }
 
     let mut s = settings::load(&app);
     s.recent_vaults.retain(|p| p != &info.path);
@@ -121,6 +133,16 @@ fn search_notes(state: State<'_, AppState>, query: String) -> Result<Vec<SearchH
     with_vault(&state, |v| v.search(&query))
 }
 
+/// 某篇笔记的出链与反向链接。
+#[tauri::command]
+fn link_report(state: State<'_, AppState>, path: String) -> Result<LinkReport, String> {
+    with_vault(&state, |v| {
+        let mut index = state.links.lock().map_err(|_| "内部状态异常".to_string())?;
+        index.refresh(&v.root);
+        Ok(index.report(&path))
+    })
+}
+
 /// 判断某个路径是否仍是可用文件夹（用于最近仓库列表）。
 #[tauri::command]
 fn path_is_dir(path: String) -> bool {
@@ -158,6 +180,7 @@ pub fn run() {
             delete_entry,
             list_notes,
             search_notes,
+            link_report,
             path_is_dir,
             get_settings,
             save_settings,

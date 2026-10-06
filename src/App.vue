@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 /** 该类型没有从包入口导出，这里从方法签名里取，避免手写一份会过期的定义。 */
 type ResizeDirection = Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0];
 import SideBar from "./components/SideBar.vue";
+import ActivityRail from "./components/ActivityRail.vue";
 import TabBar from "./components/TabBar.vue";
 import EditorPane from "./components/EditorPane.vue";
 import PreviewPane from "./components/PreviewPane.vue";
@@ -14,6 +15,7 @@ import QuickSwitcher from "./components/QuickSwitcher.vue";
 import ModalHost from "./components/ModalHost.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ContextMenu from "./components/ContextMenu.vue";
+import LinkPanel from "./components/LinkPanel.vue";
 import {
   activeTab,
   closeTab,
@@ -102,6 +104,35 @@ function resetSplitRatio() {
   setSplitRatio(0.5);
 }
 
+/** 右侧链接面板的宽度由拖分隔条决定。 */
+function startRightPanelResize(event: MouseEvent) {
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth = store.settings.rightPanelWidth;
+  const onMove = (move: MouseEvent) => {
+    const width = startWidth - (move.clientX - startX);
+    store.settings.rightPanelWidth = Math.max(220, Math.min(560, width));
+  };
+  const onUp = () => {
+    document.body.classList.remove("resizing");
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  document.body.classList.add("resizing");
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+/** Alt+O：在「目录」和「文件」之间来回切。 */
+function toggleOutlinePanel() {
+  if (store.sidebarTab === "outline" && store.settings.showSidebar) {
+    store.sidebarTab = "files";
+    return;
+  }
+  store.sidebarTab = "outline";
+  store.settings.showSidebar = true;
+}
+
 /** 空白区域（工具栏、状态栏、空状态）的通用菜单。 */
 function appMenu(event: MouseEvent) {
   if (store.prompt || store.confirm || store.quickSwitcher || store.showSettings) return;
@@ -143,6 +174,16 @@ function nextTab(delta: number) {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented) return; // 编辑器已经处理过的组合键不再重复响应
+
+  // Alt 单独使用的快捷键
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      toggleOutlinePanel();
+    }
+    return;
+  }
+
   if (!(event.ctrlKey || event.metaKey)) return;
   const key = event.key.toLowerCase();
 
@@ -161,7 +202,12 @@ function onKeydown(event: KeyboardEvent) {
       break;
     case "e":
       event.preventDefault();
-      cycleViewMode();
+      if (event.shiftKey) {
+        store.sidebarTab = "files";
+        store.settings.showSidebar = true;
+      } else {
+        cycleViewMode();
+      }
       break;
     case "b":
       event.preventDefault();
@@ -182,6 +228,12 @@ function onKeydown(event: KeyboardEvent) {
         event.preventDefault();
         store.settings.showSidebar = true;
         store.sidebarTab = "search";
+      }
+      break;
+    case "l":
+      if (event.shiftKey) {
+        event.preventDefault();
+        store.settings.showRightPanel = !store.settings.showRightPanel;
       }
       break;
     case "tab":
@@ -276,27 +328,20 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
-      <button class="icon-button" title="快速跳转 (Ctrl+P)" @click="openQuickSwitcher">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-        <span class="button-label">跳转</span>
-      </button>
-      <button class="icon-button" title="新建笔记 (Ctrl+N)" @click="createNote('')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 3h8l4 4v14H6z" />
-          <path d="M12 11v6M9 14h6" />
-        </svg>
-      </button>
-      <button class="icon-button" title="保存 (Ctrl+S)" @click="saveActive">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M5 3h11l3 3v15H5z" />
-          <path d="M8 3v6h7V3M8 15h8" />
-        </svg>
-      </button>
-
       <span class="spacer" />
+
+      <button
+        class="icon-button"
+        :class="{ active: store.settings.showRightPanel }"
+        :title="store.settings.showRightPanel ? '收起链接面板 · Ctrl+Shift+L' : '显示链接与反链 · Ctrl+Shift+L'"
+        :disabled="!activeTab"
+        @click="store.settings.showRightPanel = !store.settings.showRightPanel"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1" />
+          <path d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1" />
+        </svg>
+      </button>
 
       <div class="segmented">
         <button :class="{ active: store.settings.viewMode === 'edit' }" title="仅编辑 (Ctrl+E)" @click="store.settings.viewMode = 'edit'">
@@ -321,12 +366,6 @@ onBeforeUnmount(() => {
         </svg>
         <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
-        </svg>
-      </button>
-      <button class="icon-button" title="设置" @click="store.showSettings = true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9.5 4.1a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9 2 2 0 1 1 0 4z" />
         </svg>
       </button>
 
@@ -370,35 +409,45 @@ onBeforeUnmount(() => {
     </template>
 
     <div class="main">
+      <ActivityRail />
       <SideBar v-if="store.vault && store.settings.showSidebar" />
       <div v-if="store.vault && store.settings.showSidebar" class="splitter" @mousedown="startSidebarResize" />
 
       <section class="workspace">
-        <TabBar v-if="store.tabs.length" />
+        <div class="workspace-main">
+          <TabBar v-if="store.tabs.length" />
 
-        <div ref="panesRef" class="panes">
-          <EditorPane v-if="store.vault && activeTab" v-show="showEditor" :style="editorPaneStyle" />
-          <div
-            v-if="isSplit"
-            class="pane-splitter"
-            title="拖动调整分栏宽度，双击恢复均分"
-            @mousedown="startPaneResize"
-            @dblclick="resetSplitRatio"
-          />
-          <PreviewPane v-if="activeTab && showPreview" :style="previewPaneStyle" />
+          <div ref="panesRef" class="panes">
+            <EditorPane v-if="store.vault && activeTab" v-show="showEditor" :style="editorPaneStyle" />
+            <div
+              v-if="isSplit"
+              class="pane-splitter"
+              title="拖动调整分栏宽度，双击恢复均分"
+              @mousedown="startPaneResize"
+              @dblclick="resetSplitRatio"
+            />
+            <PreviewPane v-if="activeTab && showPreview" :style="previewPaneStyle" />
 
-          <div v-if="!activeTab" class="empty-state">
-            <template v-if="store.vault">
-              <div>还没有打开的笔记</div>
-              <div>
-                按 <kbd>Ctrl</kbd> + <kbd>N</kbd> 新建，或按 <kbd>Ctrl</kbd> + <kbd>P</kbd> 跳转
-              </div>
-            </template>
+            <div v-if="!activeTab" class="empty-state">
+              <template v-if="store.vault">
+                <div>还没有打开的笔记</div>
+                <div>
+                  按 <kbd>Ctrl</kbd> + <kbd>N</kbd> 新建，或按 <kbd>Ctrl</kbd> + <kbd>P</kbd> 跳转
+                </div>
+              </template>
+            </div>
           </div>
-        </div>
 
-        <StatusBar />
+          <StatusBar />
+        </div>
       </section>
+
+      <div
+        v-if="activeTab && store.settings.showRightPanel"
+        class="splitter"
+        @mousedown="startRightPanelResize"
+      />
+      <LinkPanel v-if="activeTab && store.settings.showRightPanel" />
     </div>
 
     <WelcomeScreen v-if="!store.vault" />

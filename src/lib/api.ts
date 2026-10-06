@@ -34,6 +34,23 @@ export interface SearchHit {
   text: string;
 }
 
+/** 一条双链：出链或反向链接。 */
+export interface LinkRef {
+  path: string;
+  title: string;
+  target: string;
+  alias: string;
+  line: number;
+  context: string;
+  resolved: boolean;
+  targetPath: string | null;
+}
+
+export interface LinkReport {
+  outgoing: LinkRef[];
+  backlinks: LinkRef[];
+}
+
 export interface Settings {
   recentVaults: string[];
   lastVault: string | null;
@@ -43,6 +60,9 @@ export interface Settings {
   sidebarWidth: number;
   showSidebar: boolean;
   showLineNumbers: boolean;
+  /** 右侧链接面板是否展开 */
+  showRightPanel: boolean;
+  rightPanelWidth: number;
   editorWidth: number;
   /** 分栏时编辑区占的比例（0.15 – 0.85） */
   splitRatio: number;
@@ -65,6 +85,7 @@ export const api = {
   deleteEntry: (path: string) => invoke<void>("delete_entry", { path }),
   listNotes: () => invoke<NoteMeta[]>("list_notes"),
   searchNotes: (query: string) => invoke<SearchHit[]>("search_notes", { query }),
+  linkReport: (path: string) => invoke<LinkReport>("link_report", { path }),
   pathIsDir: (path: string) => invoke<boolean>("path_is_dir", { path }),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),

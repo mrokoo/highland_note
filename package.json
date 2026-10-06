@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:rnote": "node scripts/rnote-check.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

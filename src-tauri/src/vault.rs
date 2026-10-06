@@ -92,8 +92,13 @@ pub fn is_note(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn is_skipped_dir(name: &str) -> bool {
+pub(crate) fn is_skipped_dir(name: &str) -> bool {
     SKIP_DIRS.iter().any(|s| s.eq_ignore_ascii_case(name))
+}
+
+/// 文件的「身份」：修改时间 + 大小。链接索引靠它判断缓存是否还有效。
+pub fn stamp(meta: &fs::Metadata) -> (i64, u64) {
+    (mtime_ms(meta), meta.len())
 }
 
 /// 绝对路径转仓库相对路径（`/` 分隔）。

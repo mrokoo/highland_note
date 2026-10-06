@@ -20,6 +20,9 @@ pub struct Settings {
     pub sidebar_width: u32,
     pub show_sidebar: bool,
     pub show_line_numbers: bool,
+    /// 右侧链接面板是否展开。
+    pub show_right_panel: bool,
+    pub right_panel_width: u32,
     pub editor_width: u32,
     /// 分栏时编辑区占的比例（0.15 – 0.85）。
     pub split_ratio: f64,
@@ -36,6 +39,8 @@ impl Default for Settings {
             sidebar_width: 268,
             show_sidebar: true,
             show_line_numbers: true,
+            show_right_panel: false,
+            right_panel_width: 300,
             editor_width: 0,
             split_ratio: 0.5,
         }
