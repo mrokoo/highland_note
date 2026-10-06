@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { ChevronRight, FileText, Folder } from "lucide-vue-next";
 import type { FileNode } from "../lib/api";
 import { moveEntry, openNote, store, toggleFolder } from "../lib/store";
 import { dnd } from "../lib/dnd";
@@ -73,33 +74,10 @@ function onDrop(event: DragEvent) {
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <span v-if="node.isDir" class="twisty">{{ expanded ? "▾" : "▸" }}</span>
+      <ChevronRight v-if="node.isDir" class="twisty" :class="{ open: expanded }" :size="13" :stroke-width="2.4" />
       <span v-else class="twisty" />
-      <svg
-        v-if="node.isDir"
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        class="node-icon"
-      >
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      </svg>
-      <svg
-        v-else
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        class="node-icon dim"
-      >
-        <path d="M6 3h8l4 4v14H6z" />
-        <path d="M14 3v4h4" />
-      </svg>
+      <Folder v-if="node.isDir" class="node-icon" :size="14" :stroke-width="1.9" />
+      <FileText v-else class="node-icon dim" :size="14" :stroke-width="1.9" />
       <!-- 提示只挂在文件名上：挂在整行会让原生提示框正好盖住右边的「⋯」 -->
       <span class="label" :title="node.path">{{ node.name }}</span>
       <span class="row-actions">

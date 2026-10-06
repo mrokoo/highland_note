@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { ChevronsDownUp, ChevronsUpDown, FilePlus, FolderPlus, RefreshCw } from "lucide-vue-next";
 import TreeNode from "./TreeNode.vue";
 import OutlinePanel from "./OutlinePanel.vue";
 import type { FileNode } from "../lib/api";
@@ -82,6 +83,30 @@ async function refresh() {
   await Promise.all([refreshTree(), refreshNotes()]);
 }
 
+/** 树里任意一层被展开着。 */
+const anyExpanded = computed(() => Object.values(store.expanded).some(Boolean));
+
+function collectFolders(nodes: FileNode[], out: string[]) {
+  for (const node of nodes) {
+    if (!node.isDir) continue;
+    out.push(node.path);
+    collectFolders(node.children ?? [], out);
+  }
+}
+
+/** 一键全部展开 / 全部折叠。 */
+function toggleFolders() {
+  if (anyExpanded.value) {
+    store.expanded = {};
+    return;
+  }
+  const folders: string[] = [];
+  collectFolders(store.tree, folders);
+  const next: Record<string, boolean> = {};
+  for (const path of folders) next[path] = true;
+  store.expanded = next;
+}
+
 function onRootDragOver(event: DragEvent) {
   if (!dnd.path) return;
   event.preventDefault();
@@ -116,24 +141,23 @@ function highlight(text: string, query: string): string {
   <aside class="sidebar" :style="{ width: `${store.settings.sidebarWidth}px` }">
     <template v-if="store.sidebarTab === 'files'">
       <div class="sidebar-actions">
-        <button class="icon-button" title="新建笔记 (Ctrl+N)" @click="createNote('')">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M6 3h8l4 4v14H6z" />
-            <path d="M12 11v6M9 14h6" />
-          </svg>
-          新建笔记
+        <button class="icon-button" title="新建笔记 · Ctrl+N" @click="createNote('')">
+          <FilePlus :size="19" :stroke-width="1.75" />
         </button>
         <button class="icon-button" title="新建文件夹" @click="createFolder('')">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <path d="M12 12v5M9.5 14.5h5" />
-          </svg>
+          <FolderPlus :size="19" :stroke-width="1.75" />
+        </button>
+        <button
+          class="icon-button"
+          :title="anyExpanded ? '全部折叠' : '全部展开'"
+          :disabled="!store.tree.length"
+          @click="toggleFolders"
+        >
+          <ChevronsDownUp v-if="anyExpanded" :size="19" :stroke-width="1.75" />
+          <ChevronsUpDown v-else :size="19" :stroke-width="1.75" />
         </button>
         <button class="icon-button" title="刷新" @click="refresh">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 12a8 8 0 1 1-2.3-5.6" />
-            <path d="M20 4v4h-4" />
-          </svg>
+          <RefreshCw :size="18" :stroke-width="1.75" />
         </button>
       </div>
 

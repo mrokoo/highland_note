@@ -64,74 +64,59 @@ watch(
 </script>
 
 <template>
-  <aside class="link-panel" :style="{ width: `${store.settings.rightPanelWidth}px` }">
-    <header class="link-header">
-      <span>链接</span>
-      <button
-        class="icon-button"
-        title="收起链接面板 · Ctrl+Shift+L"
-        @click="store.settings.showRightPanel = false"
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+  <div class="link-body">
+    <!-- 反向链接：谁引用了我 -->
+    <section class="link-section">
+      <button class="link-section-head" @click="toggle('back')">
+        <svg class="chevron" :class="{ open: !collapsed.back }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
           <path d="M9 5l7 7-7 7" />
         </svg>
+        <span>反向链接</span>
+        <span class="count">{{ backlinks.length }}</span>
       </button>
-    </header>
 
-    <div class="link-body">
-      <!-- 反向链接：谁引用了我 -->
-      <section class="link-section">
-        <button class="link-section-head" @click="toggle('back')">
-          <svg class="chevron" :class="{ open: !collapsed.back }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-          <span>反向链接</span>
-          <span class="count">{{ backlinks.length }}</span>
-        </button>
-
-        <div v-if="!collapsed.back" class="link-list">
-          <div
-            v-for="link in backlinks"
-            :key="`${link.path}:${link.line}`"
-            class="link-item"
-            :title="`${link.path} : ${link.line}`"
-            @click="openBacklink(link)"
-          >
-            <div class="link-source">{{ link.title }}</div>
-            <div class="link-context" v-html="renderContext(link.context)" />
-          </div>
-          <div v-if="!backlinks.length" class="link-empty">还没有笔记引用这一篇</div>
+      <div v-if="!collapsed.back" class="link-list">
+        <div
+          v-for="link in backlinks"
+          :key="`${link.path}:${link.line}`"
+          class="link-item"
+          :title="`${link.path} : ${link.line}`"
+          @click="openBacklink(link)"
+        >
+          <div class="link-source">{{ link.title }}</div>
+          <div class="link-context" v-html="renderContext(link.context)" />
         </div>
-      </section>
+        <div v-if="!backlinks.length" class="link-empty">还没有笔记引用这一篇</div>
+      </div>
+    </section>
 
-      <!-- 出链：我引用了谁 -->
-      <section class="link-section">
-        <button class="link-section-head" @click="toggle('out')">
-          <svg class="chevron" :class="{ open: !collapsed.out }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-          <span>出链</span>
-          <span class="count">{{ outgoing.length }}</span>
-        </button>
+    <!-- 出链：我引用了谁 -->
+    <section class="link-section">
+      <button class="link-section-head" @click="toggle('out')">
+        <svg class="chevron" :class="{ open: !collapsed.out }" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+        <span>出链</span>
+        <span class="count">{{ outgoing.length }}</span>
+      </button>
 
-        <div v-if="!collapsed.out" class="link-list">
-          <div
-            v-for="link in outgoing"
-            :key="`${link.line}:${link.target}`"
-            class="link-item outgoing"
-            :class="{ missing: !link.resolved }"
-            :title="link.resolved ? link.targetPath ?? '' : `「${link.target}」还不存在，点击创建`"
-            @click="openOutgoing(link)"
-          >
-            <div class="link-source">
-              {{ link.alias }}
-              <span v-if="!link.resolved" class="badge">未创建</span>
-            </div>
-            <div class="link-context" v-html="renderContext(link.context)" />
+      <div v-if="!collapsed.out" class="link-list">
+        <div
+          v-for="link in outgoing"
+          :key="`${link.line}:${link.target}`"
+          class="link-item outgoing"
+          :class="{ missing: !link.resolved }"
+          :title="link.resolved ? link.targetPath ?? '' : `「${link.target}」还不存在，点击创建`"
+          @click="openOutgoing(link)"
+        >
+          <div class="link-source">
+            {{ link.alias }}
+            <span v-if="!link.resolved" class="badge">未创建</span>
           </div>
-          <div v-if="!outgoing.length" class="link-empty">这一篇还没有 [[双链]]</div>
+          <div class="link-context" v-html="renderContext(link.context)" />
         </div>
-      </section>
-    </div>
-  </aside>
+        <div v-if="!outgoing.length" class="link-empty">这一篇还没有 [[双链]]</div>
+      </div>
+    </section>
+  </div>
 </template>

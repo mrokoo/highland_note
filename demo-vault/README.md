@@ -49,7 +49,7 @@ fn read_note(path: String) -> Result<String, String> {
 ## 任务
 
 - [x] 打开仓库
-- [x] 打开笔记
+- [ ] 打开笔记
 - [ ] 待你补充
 
 ## 关联

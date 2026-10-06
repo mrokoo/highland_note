@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { ArrowRightLeft, FolderTree, ListTree, Search, Settings } from "lucide-vue-next";
 import { openQuickSwitcher, store, type SidebarTab } from "../lib/store";
 
 interface RailItem {
   key: SidebarTab;
   label: string;
   hint: string;
+  icon: unknown;
 }
 
 /**
@@ -12,9 +14,9 @@ interface RailItem {
  * 设置固定在底部。以后加复习、知识树只要往 items 里加一项。
  */
 const items: RailItem[] = [
-  { key: "files", label: "文件", hint: "文件 · Ctrl+Shift+E" },
-  { key: "search", label: "搜索", hint: "全文搜索 · Ctrl+Shift+F" },
-  { key: "outline", label: "目录", hint: "标题大纲 · Alt+O" },
+  { key: "files", label: "文件", hint: "文件 · Ctrl+Shift+E", icon: FolderTree },
+  { key: "search", label: "搜索", hint: "全文搜索 · Ctrl+Shift+F", icon: Search },
+  { key: "outline", label: "目录", hint: "标题大纲 · Alt+O", icon: ListTree },
 ];
 
 function select(key: SidebarTab) {
@@ -32,9 +34,7 @@ function select(key: SidebarTab) {
   <nav class="rail">
     <div class="rail-items">
       <button class="rail-button" title="快速跳转 · Ctrl+P" @click="openQuickSwitcher">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M4 12h13M12 6l6 6-6 6" />
-        </svg>
+        <ArrowRightLeft :size="20" :stroke-width="1.7" />
         <span class="rail-label">跳转</span>
       </button>
     </div>
@@ -50,33 +50,7 @@ function select(key: SidebarTab) {
         :title="item.hint"
         @click="select(item.key)"
       >
-        <svg
-          v-if="item.key === 'files'"
-          width="19"
-          height="19"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-        >
-          <path d="M6 3h8l4 4v14H6z" />
-          <path d="M9.5 11h5M9.5 15h5" />
-        </svg>
-        <svg
-          v-else-if="item.key === 'search'"
-          width="19"
-          height="19"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-        <svg v-else width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M4 6h10M4 12h16M4 18h7" />
-        </svg>
+        <component :is="item.icon" :size="20" :stroke-width="1.7" />
         <span class="rail-label">{{ item.label }}</span>
       </button>
     </div>
@@ -89,12 +63,7 @@ function select(key: SidebarTab) {
       title="设置 · Ctrl+,"
       @click="store.showSettings = true"
     >
-      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="12" cy="12" r="3" />
-        <path
-          d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9.5 4.1a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9 2 2 0 1 1 0 4z"
-        />
-      </svg>
+      <Settings :size="20" :stroke-width="1.7" />
       <span class="rail-label">设置</span>
     </button>
   </nav>

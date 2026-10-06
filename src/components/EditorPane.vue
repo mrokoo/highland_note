@@ -13,6 +13,7 @@ import {
   updateActiveContent,
 } from "../lib/store";
 import { resolveAssetUrl } from "../lib/assets";
+import { renderMarkdown } from "../lib/markdown";
 import { copyText, readClipboardText } from "../lib/clipboard";
 import {
   deleteSelection,
@@ -170,6 +171,7 @@ onMounted(() => {
     },
     onWikilink: (target) => void openWikilink(target),
     imageSource: resolveImage,
+    renderTable: (source) => renderMarkdown(source),
   });
   view = handle.view;
   mountedPath = store.activePath ?? "";

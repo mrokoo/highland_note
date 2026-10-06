@@ -518,11 +518,31 @@ body.resizing .pane-splitter::after {
   border-right: 1px solid transparent;
 }
 
+/* 动作行是一排等大的图标按钮，靠 tooltip 说明用途 */
 .sidebar-actions {
   display: flex;
-  gap: 2px;
-  padding: 9px 8px 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 6px;
   flex: none;
+}
+
+.sidebar-actions .icon-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-button:disabled:hover {
+  background: none;
+  color: var(--text-muted);
 }
 
 .tree {
@@ -562,8 +582,25 @@ body.resizing .pane-splitter::after {
 .tree-row .twisty {
   width: 14px;
   flex: none;
-  text-align: center;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: transform 0.14s ease;
+}
+
+/* 箭头指右，展开时转成朝下 */
+.twisty.open {
+  transform: rotate(90deg);
+}
+
+.tree-row .node-icon {
+  flex: none;
+  margin-right: 1px;
+  color: var(--accent-soft);
+}
+
+.tree-row .node-icon.dim {
   color: var(--text-faint);
 }
 
@@ -728,11 +765,10 @@ body.resizing .pane-splitter::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
   color: var(--text-faint);
-  font-size: 12px;
   line-height: 1;
   flex: none;
   opacity: 0;
@@ -823,33 +859,67 @@ body.resizing .pane-splitter::after {
   color: var(--danger);
 }
 
-/* ---------------------------------------------------------- 链接面板（右侧） */
+/* ---------------------------------------------------------- 右侧图标栏 + 面板 */
 
-.link-panel {
+.right-side {
   display: flex;
   flex-direction: column;
   flex: none;
-  min-width: 220px;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border);
 }
 
-.link-header {
+/* 收起后只剩一条竖排图标栏，和左边栏对称 */
+.right-side.collapsed {
+  width: 52px;
+  align-items: center;
+  padding-top: 8px;
+}
+
+.right-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 34px;
+  gap: 4px;
+  padding: 6px 8px;
   flex: none;
-  padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 12px;
+}
+
+.right-side.collapsed .right-toolbar {
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border-bottom: none;
+}
+
+/* 竖排时把分隔用的空白变成一条横线 */
+.right-side.collapsed .right-toolbar .spacer {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+
+.right-toolbar .icon-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.right-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .link-body {
   flex: 1;
   overflow: auto;
-  padding: 6px 8px 24px;
+  padding: 8px 8px 24px;
 }
 
 .link-section + .link-section {
@@ -1120,9 +1190,35 @@ body.resizing .pane-splitter::after {
 }
 
 /* 代码高亮（配合 highlight.js 的类名） */
+/* 代码配色：预览（highlight.js）和编辑器（CodeMirror）共用同一套变量，
+   改一处两边一起变，主题切换也自动跟随。One Dark 深色 / One Light 浅色。 */
+:root {
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-variable: #d19a66;
+  --code-type: #d19a66;
+  --code-function: #61afef;
+  --code-builtin: #56b6c2;
+  --code-tag: #e06c75;
+  --code-comment: var(--text-faint);
+}
+
+:root[data-theme="light"] {
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-number: #986801;
+  --code-variable: #e45649;
+  --code-type: #c18401;
+  --code-function: #4078f2;
+  --code-builtin: #0184bc;
+  --code-tag: #e45649;
+  --code-comment: var(--text-faint);
+}
+
 .hljs-comment,
 .hljs-quote {
-  color: var(--text-faint);
+  color: var(--code-comment);
   font-style: italic;
 }
 
@@ -1132,7 +1228,7 @@ body.resizing .pane-splitter::after {
 .hljs-section,
 .hljs-doctag,
 .hljs-name {
-  color: #c678dd;
+  color: var(--code-keyword);
 }
 
 .hljs-string,
@@ -1140,7 +1236,7 @@ body.resizing .pane-splitter::after {
 .hljs-addition,
 .hljs-attribute,
 .hljs-meta .hljs-string {
-  color: #98c379;
+  color: var(--code-string);
 }
 
 .hljs-number,
@@ -1149,44 +1245,24 @@ body.resizing .pane-splitter::after {
 .hljs-type,
 .hljs-selector-attr,
 .hljs-selector-pseudo {
-  color: #d19a66;
+  color: var(--code-number);
 }
 
 .hljs-title,
 .hljs-title.class_,
 .hljs-title.function_ {
-  color: #61afef;
+  color: var(--code-function);
 }
 
 .hljs-built_in,
 .hljs-symbol,
 .hljs-bullet,
 .hljs-link {
-  color: #56b6c2;
+  color: var(--code-builtin);
 }
 
 .hljs-deletion {
   color: var(--danger);
-}
-
-:root[data-theme="light"] .hljs-keyword,
-:root[data-theme="light"] .hljs-selector-tag,
-:root[data-theme="light"] .hljs-literal,
-:root[data-theme="light"] .hljs-section,
-:root[data-theme="light"] .hljs-name {
-  color: #a626a4;
-}
-
-:root[data-theme="light"] .hljs-string,
-:root[data-theme="light"] .hljs-regexp,
-:root[data-theme="light"] .hljs-addition {
-  color: #50a14f;
-}
-
-:root[data-theme="light"] .hljs-title,
-:root[data-theme="light"] .hljs-title.class_,
-:root[data-theme="light"] .hljs-title.function_ {
-  color: #4078f2;
 }
 
 /* ---------------------------------------------------------- 浮层 */

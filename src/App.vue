@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Copy, Minus, Moon, PanelLeft, PanelRight, Square, Sun, X } from "lucide-vue-next";
 
 /** 该类型没有从包入口导出，这里从方法签名里取，避免手写一份会过期的定义。 */
 type ResizeDirection = Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0];
@@ -15,7 +16,7 @@ import QuickSwitcher from "./components/QuickSwitcher.vue";
 import ModalHost from "./components/ModalHost.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ContextMenu from "./components/ContextMenu.vue";
-import LinkPanel from "./components/LinkPanel.vue";
+import RightSidebar from "./components/RightSidebar.vue";
 import {
   activeTab,
   closeTab,
@@ -303,10 +304,7 @@ onBeforeUnmount(() => {
         title="切换侧边栏 (Ctrl+B)"
         @click="store.settings.showSidebar = !store.settings.showSidebar"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="M9 4v16" />
-        </svg>
+        <PanelLeft :size="18" :stroke-width="1.75" />
       </button>
 
       <div class="app-identity">
@@ -333,65 +331,35 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ active: store.settings.showRightPanel }"
-        :title="store.settings.showRightPanel ? '收起链接面板 · Ctrl+Shift+L' : '显示链接与反链 · Ctrl+Shift+L'"
-        :disabled="!activeTab"
+        :title="store.settings.showRightPanel ? '收起右侧面板 · Ctrl+Shift+L' : '展开右侧面板 · Ctrl+Shift+L'"
         @click="store.settings.showRightPanel = !store.settings.showRightPanel"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <path d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1" />
-          <path d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1" />
-        </svg>
+        <PanelRight :size="18" :stroke-width="1.75" />
       </button>
-
-      <div class="segmented">
-        <button :class="{ active: store.settings.viewMode === 'edit' }" title="仅编辑 (Ctrl+E)" @click="store.settings.viewMode = 'edit'">
-          编辑
-        </button>
-        <button :class="{ active: store.settings.viewMode === 'split' }" title="分栏 (Ctrl+E)" @click="store.settings.viewMode = 'split'">
-          分栏
-        </button>
-        <button :class="{ active: store.settings.viewMode === 'preview' }" title="仅预览 (Ctrl+E)" @click="store.settings.viewMode = 'preview'">
-          预览
-        </button>
-      </div>
 
       <button
         class="icon-button"
         :title="store.settings.theme === 'dark' ? '切换到浅色' : '切换到深色'"
         @click="setTheme(store.settings.theme === 'dark' ? 'light' : 'dark')"
       >
-        <svg v-if="store.settings.theme === 'dark'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
-        </svg>
-        <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
-        </svg>
+        <Sun v-if="store.settings.theme === 'dark'" :size="18" :stroke-width="1.75" />
+        <Moon v-else :size="18" :stroke-width="1.75" />
       </button>
 
       <div class="window-controls">
         <button class="window-button" title="最小化" @click="minimizeWindow">
-          <svg width="10" height="10" viewBox="0 0 10 10">
-            <path d="M0 5h10" stroke="currentColor" stroke-width="1.1" />
-          </svg>
+          <Minus :size="15" :stroke-width="1.5" />
         </button>
         <button
           class="window-button"
           :title="isMaximized ? '向下还原' : '最大化'"
           @click="toggleMaximizeWindow"
         >
-          <svg v-if="!isMaximized" width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <rect x="0.6" y="0.6" width="8.8" height="8.8" rx="1.4" stroke="currentColor" stroke-width="1.1" />
-          </svg>
-          <svg v-else width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <rect x="0.6" y="2.6" width="6.8" height="6.8" rx="1.2" stroke="currentColor" stroke-width="1.1" />
-            <path d="M2.9 2.6V1.4A0.8 0.8 0 0 1 3.7 0.6h4.9a0.8 0.8 0 0 1 0.8 0.8v4.9a0.8 0.8 0 0 1-0.8 0.8H7.4" stroke="currentColor" stroke-width="1.1" />
-          </svg>
+          <Copy v-if="isMaximized" :size="13" :stroke-width="1.5" />
+          <Square v-else :size="12" :stroke-width="1.5" />
         </button>
         <button class="window-button close" title="关闭" @click="closeWindow">
-          <svg width="10" height="10" viewBox="0 0 10 10">
-            <path d="M0.7 0.7 9.3 9.3M9.3 0.7 0.7 9.3" stroke="currentColor" stroke-width="1.1" />
-          </svg>
+          <X :size="16" :stroke-width="1.5" />
         </button>
       </div>
     </header>
@@ -443,11 +411,11 @@ onBeforeUnmount(() => {
       </section>
 
       <div
-        v-if="activeTab && store.settings.showRightPanel"
+        v-if="store.settings.showRightPanel"
         class="splitter"
         @mousedown="startRightPanelResize"
       />
-      <LinkPanel v-if="activeTab && store.settings.showRightPanel" />
+      <RightSidebar v-if="store.vault" />
     </div>
 
     <WelcomeScreen v-if="!store.vault" />

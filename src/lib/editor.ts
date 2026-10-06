@@ -16,7 +16,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
-import { EditorState, Compartment, type Extension, type Range } from "@codemirror/state";
+import { EditorState, Compartment, StateField, type Extension, type Range } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
@@ -57,6 +57,23 @@ const markdownHighlight = HighlightStyle.define([
   { tag: [t.processingInstruction, t.meta], color: "var(--mark)" },
   { tag: t.contentSeparator, color: "var(--mark)" },
   { tag: t.labelName, color: "var(--accent)" },
+
+  // 代码块里的语法着色。配色变量和预览用的 highlight.js 是同一套，
+  // 缺了这段的话代码块只有单色（嵌套语言的解析结果没人上色）。
+  { tag: [t.keyword, t.moduleKeyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword], color: "var(--code-keyword)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--code-string)" },
+  { tag: [t.number, t.bool, t.null, t.atom], color: "var(--code-number)" },
+  { tag: [t.variableName, t.definition(t.variableName)], color: "var(--code-variable)" },
+  { tag: [t.typeName, t.className, t.namespace, t.definition(t.typeName)], color: "var(--code-type)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.function(t.definition(t.variableName))], color: "var(--code-function)" },
+  { tag: [t.propertyName, t.attributeName], color: "var(--code-builtin)" },
+  { tag: [t.tagName, t.deleted], color: "var(--code-tag)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--code-comment)", fontStyle: "italic" },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket, t.derefOperator], color: "var(--text-muted)" },
+  { tag: [t.escape, t.character, t.special(t.variableName)], color: "var(--code-builtin)" },
+  { tag: [t.self, t.constant(t.variableName)], color: "var(--code-number)" },
+  { tag: [t.definitionKeyword, t.modifier], color: "var(--code-keyword)" },
+  { tag: t.invalid, color: "var(--danger)" },
 ]);
 
 /** 光标不在本行时折叠掉的 Markdown 标记（所见即所得）。 */
@@ -147,16 +164,98 @@ class RuleWidget extends WidgetType {
   }
 }
 
+/** 无序列表的圆点：源代码里的 `-` 换成 `•`。 */
+class BulletWidget extends WidgetType {
+  toDOM() {
+    const dot = document.createElement("span");
+    dot.className = "cm-bullet";
+    dot.textContent = "•";
+    return dot;
+  }
+}
+
+/**
+ * 表格：整块渲染成 HTML 表格。
+ *
+ * 跨行的替换装饰 CodeMirror 只允许由 StateField 提供（ViewPlugin 会直接抛
+ * RangeError），所以表格走 tableField，见下面的 buildTables。
+ */
+class TableWidget extends WidgetType {
+  constructor(readonly html: string) {
+    super();
+  }
+
+  eq(other: TableWidget) {
+    return other.html === this.html;
+  }
+
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-table";
+    wrap.innerHTML = this.html;
+    return wrap;
+  }
+
+  // 点一下就退回源码，光标落在表里就能直接改
+  ignoreEvent() {
+    return false;
+  }
+}
+
 export interface LivePreviewOptions {
   /** 把笔记里的图片地址换成 webview 能加载的地址 */
   imageSource?: (url: string) => string | null;
+  /** 把表格源码渲染成 HTML（复用预览那套 Markdown 渲染） */
+  renderTable?: (source: string) => string;
 }
 
-function buildLivePreview(view: EditorView, options: LivePreviewOptions): DecorationSet {
+interface TableValue {
+  decorations: DecorationSet;
+  ranges: { from: number; to: number }[];
+}
+
+/** 找出整行表格，光标不在里面时用 HTML 表格替换掉。 */
+function buildTables(state: EditorState, renderTable?: (source: string) => string): TableValue {
+  const ranges: TableValue["ranges"] = [];
+  const decorations: Range<Decoration>[] = [];
+
+  if (renderTable) {
+    syntaxTree(state).iterate({
+      enter: (node) => {
+        if (node.name !== "Table") return;
+        const first = state.doc.lineAt(node.from);
+        const last = state.doc.lineAt(node.to);
+        // 块级替换必须整行，这里不满足就老实显示源码
+        if (node.from !== first.from) return;
+        const to = last.to;
+        ranges.push({ from: first.from, to });
+        const editing = state.selection.ranges.some((r) => r.from <= to && r.to >= first.from);
+        if (editing) return;
+        const html = renderTable(state.sliceDoc(first.from, to));
+        if (html) {
+          decorations.push(
+            Decoration.replace({ widget: new TableWidget(html), block: true }).range(first.from, to),
+          );
+        }
+      },
+    });
+  }
+
+  return { decorations: Decoration.set(decorations, true), ranges };
+}
+
+function buildLivePreview(
+  view: EditorView,
+  options: LivePreviewOptions,
+  skip: TableValue["ranges"] = [],
+): DecorationSet {
   const marks: Range<Decoration>[] = [];
   const lines: Range<Decoration>[] = [];
   const replaces: { from: number; to: number; decoration: Decoration }[] = [];
   const { state } = view;
+
+  // 已经被表格部件整块替换的范围，行内装饰要让开，否则会重叠报错
+  const inSkipped = (from: number, to: number) => skip.some((r) => from < r.to && to > r.from);
 
   const replace = (from: number, to: number, decoration: Decoration) => {
     if (from >= to) return;
@@ -189,6 +288,9 @@ function buildLivePreview(view: EditorView, options: LivePreviewOptions): Decora
       enter: (node) => {
         const name = node.name;
 
+        // 已经被表格部件整块替换掉的，别再叠行内装饰
+        if (inSkipped(node.from, node.to)) return;
+
         // 代码块 / 引用块是块级样式，光标在里面也要保留
         if (name === "FencedCode" || name === "CodeBlock") {
           decorateLines(node.from, node.to, "cm-code-line");
@@ -202,10 +304,41 @@ function buildLivePreview(view: EditorView, options: LivePreviewOptions): Decora
           return;
         }
 
+        // 标题：字号写在自己的行装饰类里。
+        // 高亮样式给的 fontSize 在这类整行节点上不可靠（实测只剩粗体和颜色），
+        // 所以这里连字号一起接管；光标行也保留字号，只把 `#` 露出来。
+        if (name.startsWith("ATXHeading")) {
+          const first = state.doc.lineAt(node.from);
+          lines.push(Decoration.line({ class: `cm-heading cm-heading-${name.slice(-1)}` }).range(first.from));
+          return;
+        }
+
         if (node.from === node.to) return;
         const line = state.doc.lineAt(node.from);
         // 光标所在行保留原始语法，方便直接改
         if (selectionTouchesLine(state, line.from, line.to)) return;
+
+        // 列表符号：无序的换成圆点，有序的淡淡地显示序号
+        if (name === "ListMark") {
+          if (/^[-*+]$/.test(state.sliceDoc(node.from, node.to))) {
+            replace(node.from, node.to, Decoration.replace({ widget: new BulletWidget() }));
+          } else {
+            marks.push(Decoration.mark({ class: "cm-list-number" }).range(node.from, node.to));
+          }
+          return;
+        }
+
+        // 行内代码：加个底色药丸
+        if (name === "InlineCode") {
+          marks.push(Decoration.mark({ class: "cm-inline-code" }).range(node.from, node.to));
+          return;
+        }
+
+        // 真正的行内链接 `[文字](地址)` 才加链接样式
+        if (name === "Link" && /\]\(/.test(state.sliceDoc(node.from, node.to))) {
+          marks.push(Decoration.mark({ class: "cm-link" }).range(node.from, node.to));
+          return;
+        }
 
         if (name === "HorizontalRule") {
           replace(node.from, node.to, Decoration.replace({ widget: new RuleWidget() }));
@@ -228,6 +361,14 @@ function buildLivePreview(view: EditorView, options: LivePreviewOptions): Decora
     for (let number = firstLine; number <= lastLine; number += 1) {
       if (codeLines.has(number)) continue;
       const line = state.doc.line(number);
+      if (inSkipped(line.from, line.to)) continue;
+
+      // 空行压扁：渲染出来是段间距，而不是空一整行
+      if (!line.text.trim() && !selectionTouchesLine(state, line.from, line.to)) {
+        lines.push(Decoration.line({ class: "cm-blank-line" }).range(line.from));
+        continue;
+      }
+
       if (selectionTouchesLine(state, line.from, line.to)) continue;
 
       // 待办复选框
@@ -241,6 +382,9 @@ function buildLivePreview(view: EditorView, options: LivePreviewOptions): Decora
             widget: new CheckboxWidget(task[2].toLowerCase() === "x", start, view),
           }),
         );
+        if (task[2].toLowerCase() === "x") {
+          lines.push(Decoration.line({ class: "cm-task-done" }).range(line.from));
+        }
       }
 
       // 图片：直接按 `![alt](src)` 匹配，比依赖语法树稳
@@ -288,16 +432,18 @@ function buildLivePreview(view: EditorView, options: LivePreviewOptions): Decora
   return Decoration.set([...lines, ...kept, ...marks], true);
 }
 
-function livePreview(options: LivePreviewOptions) {
+function livePreview(options: LivePreviewOptions, tableField: StateField<TableValue>) {
+  const skipRanges = (state: EditorState) => state.field(tableField, false)?.ranges ?? [];
+
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = buildLivePreview(view, options);
+        this.decorations = buildLivePreview(view, options, skipRanges(view.state));
       }
       update(update: ViewUpdate) {
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = buildLivePreview(update.view, options);
+          this.decorations = buildLivePreview(update.view, options, skipRanges(update.state));
         }
       }
     },
@@ -364,20 +510,36 @@ function baseTheme(dark: boolean): Extension {
         color: "var(--text-strong)",
       },
       // ---- 所见即所得：块级样式与行内小部件 ----
+      // 代码块：整段底色，首尾补内边距与圆角（围栏行被藏掉后正好当留白用）
       ".cm-code-line": { backgroundColor: "var(--code-bg)" },
-      ".cm-code-line-first": {
-        borderRadius: "8px 8px 0 0",
-        boxShadow: "inset 0 6px 0 var(--code-bg)",
-      },
-      ".cm-code-line-last": {
-        borderRadius: "0 0 8px 8px",
-        boxShadow: "inset 0 -6px 0 var(--code-bg)",
-      },
+      ".cm-code-line-first": { borderRadius: "8px 8px 0 0", paddingTop: "5px" },
+      ".cm-code-line-last": { borderRadius: "0 0 8px 8px", paddingBottom: "5px" },
       ".cm-quote-line": {
         borderLeft: "3px solid var(--border-strong)",
         paddingLeft: "14px",
         color: "var(--text-muted)",
       },
+      // 空行压成段间距，读起来才像排版后的文章
+      ".cm-blank-line": { lineHeight: "1.05" },
+      ".cm-heading": { color: "var(--text-strong)", fontWeight: "700", lineHeight: "1.32" },
+      ".cm-heading-1": { fontSize: "1.7em", borderBottom: "1px solid var(--border)", paddingBottom: "6px" },
+      ".cm-heading-2": { fontSize: "1.45em", borderBottom: "1px solid var(--border)", paddingBottom: "4px" },
+      ".cm-heading-3": { fontSize: "1.25em", fontWeight: "600" },
+      ".cm-heading-4": { fontSize: "1.12em", fontWeight: "600" },
+      ".cm-heading-5": { fontSize: "1em", fontWeight: "600" },
+      ".cm-heading-6": { fontSize: "0.95em", fontWeight: "600", color: "var(--text-muted)" },
+      ".cm-bullet": { color: "var(--accent)", paddingRight: "1px" },
+      ".cm-list-number": { color: "var(--text-faint)" },
+      ".cm-inline-code": {
+        backgroundColor: "var(--code-bg)",
+        borderRadius: "4px",
+        padding: "1px 5px",
+        color: "var(--text-strong)",
+      },
+      ".cm-link": { cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--border-strong)" },
+      ".cm-wikilink": { color: "var(--accent)", cursor: "pointer" },
+      ".cm-hashtag": { color: "var(--accent)" },
+      ".cm-task-done": { color: "var(--text-faint)" },
       ".cm-image": { display: "inline-flex", flexDirection: "column", gap: "2px", verticalAlign: "top" },
       ".cm-image img": {
         maxWidth: "100%",
@@ -386,9 +548,6 @@ function baseTheme(dark: boolean): Extension {
         display: "block",
         cursor: "pointer",
       },
-      ".cm-image-alt": { color: "var(--text-faint)", fontSize: "0.8em" },
-      ".cm-wikilink": { color: "var(--accent)" },
-      ".cm-hashtag": { color: "var(--accent)" },
       ".cm-task-box": {
         accentColor: "var(--accent)",
         width: "14px",
@@ -402,6 +561,20 @@ function baseTheme(dark: boolean): Extension {
         borderTop: "1px solid var(--border-strong)",
         verticalAlign: "middle",
       },
+      // 表格部件
+      ".cm-table": { margin: "6px 0", overflow: "auto" },
+      ".cm-table table": { borderCollapse: "collapse", width: "100%", fontSize: "0.94em" },
+      ".cm-table th, .cm-table td": {
+        border: "1px solid var(--border)",
+        padding: "6px 12px",
+        textAlign: "left",
+      },
+      ".cm-table th": {
+        backgroundColor: "var(--bg-panel)",
+        color: "var(--text-strong)",
+        fontWeight: "600",
+      },
+      ".cm-table p": { margin: "0" },
     },
     { dark },
   );
@@ -423,6 +596,8 @@ export interface EditorOptions {
   onWikilink?: (target: string) => void;
   /** 把笔记里的图片地址换成 webview 能加载的地址 */
   imageSource?: (url: string) => string | null;
+  /** 把表格源码渲染成 HTML（复用预览那套 Markdown 渲染） */
+  renderTable?: (source: string) => string;
 }
 
 export interface EditorHandle {
@@ -450,6 +625,15 @@ export function createCompartments(): EditorCompartments {
 
 function buildExtensions(options: EditorOptions, compartments: EditorCompartments): Extension[] {
   const { theme: themeCompartment, font: fontCompartment, gutter: gutterCompartment } = compartments;
+
+  // 表格是整块替换，只能由 StateField 提供；行内装饰要避开它
+  const tableField = StateField.define<TableValue>({
+    create: (state) => buildTables(state, options.renderTable),
+    update: (value, tr) =>
+      tr.docChanged || tr.selection ? buildTables(tr.state, options.renderTable) : value,
+    provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+  });
+
   return [
     gutterCompartment.of(options.showLineNumbers ? lineNumbers() : []),
     highlightActiveLineGutter(),
@@ -468,7 +652,8 @@ function buildExtensions(options: EditorOptions, compartments: EditorCompartment
     crosshairCursor(),
     highlightActiveLine(),
     highlightSelectionMatches(),
-    livePreview({ imageSource: options.imageSource }),
+    tableField,
+    livePreview({ imageSource: options.imageSource, renderTable: options.renderTable }, tableField),
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     EditorView.lineWrapping,
     placeholder("开始输入… 支持 Markdown、[[双链]] 与 #标签"),
