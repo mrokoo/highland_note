@@ -182,7 +182,11 @@ function highlight(text: string, query: string): string {
 </script>
 
 <template>
-  <aside class="sidebar" :style="{ width: `${store.settings.sidebarWidth}px` }">
+  <aside
+    class="sidebar"
+    :class="{ collapsed: !store.settings.showSidebar }"
+    :style="{ width: store.settings.showSidebar ? `${store.settings.sidebarWidth}px` : '0px' }"
+  >
     <template v-if="store.sidebarTab === 'files'">
       <div class="sidebar-actions">
         <button class="icon-button" title="新建笔记 · Ctrl+N" @click="createNote('')">

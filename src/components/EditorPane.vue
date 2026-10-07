@@ -13,8 +13,7 @@ import {
   saveActive,
   store,
   updateActiveContent,
-} from "../lib/store";
-import { resolveAssetUrl } from "../lib/assets";
+} from "../lib/store";import { resolveAssetUrl } from "../lib/assets";
 import { renderMarkdown } from "../lib/markdown";
 import { copyText, readClipboardText } from "../lib/clipboard";
 import { blocksFromSelection, type SelectedBlock } from "../lib/blocks";
@@ -258,7 +257,6 @@ function editorMenu(event: MouseEvent, target: EditorView) {
         target.focus();
       },
     },
-    { label: "保存笔记", shortcut: "Ctrl+S", action: () => void saveActive() },
   ]);
 }
 

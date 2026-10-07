@@ -169,6 +169,11 @@ pub fn new_id() -> String {
 // ------------------------------------------------------------------ 装配与拆解
 
 /// 把一篇笔记装配成编辑器看到的 Markdown 文档。
+///
+/// **笔记正文就是正文**，不再往里塞 `## 输入 / ## 内化 / ## 输出` 这类小节标题——
+/// 那是早期"一篇笔记由三段组成"的模型留下的，现在只会碍眼：
+/// 每次打开笔记都先看到一行"内化"，而且它还会出现在标题大纲里。
+/// 库里的分段（`parts.role`）照旧保留，只是不再往正文里写。
 pub fn assemble(conn: &Connection, note: &Note) -> Result<String, String> {
     let parts = parts_of(conn, &note.id)?;
     let mut out = String::new();
@@ -179,72 +184,67 @@ pub fn assemble(conn: &Connection, note: &Note) -> Result<String, String> {
         out.push_str("\n---\n\n");
     }
 
-    for (role, label) in ROLES {
-        for part in parts.iter().filter(|part| part.role == role) {
-            out.push_str(&format!("## {label}"));
-            if !part.title.is_empty() {
-                out.push_str(&format!(" · {}", part.title));
-            }
-            out.push_str("\n\n");
-            out.push_str(part.content.trim_end());
-            out.push_str("\n\n");
-        }
+    let bodies: Vec<&str> = parts
+        .iter()
+        .map(|part| part.content.trim())
+        .filter(|text| !text.is_empty())
+        .collect();
+    if !bodies.is_empty() {
+        out.push_str(&bodies.join("\n\n"));
+        out.push('\n');
     }
 
-    Ok(out.trim_end().to_string() + "\n")
+    // 一个字都没有时返回空串，而不是一个换行——新建的笔记在编辑器里就该是彻底空的
+    let text = out.trim_end();
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(format!("{text}\n"))
 }
 
-/// 拆解：frontmatter 之外，按 `## 输入 / ## 内化 / ## 输出` 切成若干段。
+/// 拆解：整篇正文就是一段。
 ///
-/// 没写小节标题时整篇正文归到「内化」——这样从旧模型过来的笔记不用改一个字。
+/// 从前这里按 `## 输入 / ## 内化 / ## 输出` 切段；现在笔记只有一段正文，
+/// 统一归到 `internalize`（角色仍在库里存着，将来要分角色再说）。
+/// 顺手把**旧的**角色标题行去掉——用户没写过它们，是当年装配时加上去的。
 fn split_sections(body: &str) -> Vec<(String, String, String)> {
-    let mut sections: Vec<(String, String, String)> = Vec::new();
-    let mut current: Option<(String, String, String)> = None;
-    let mut preamble = String::new();
+    let text = strip_role_headers(body).trim().to_string();
+    vec![("internalize".to_string(), String::new(), text)]
+}
 
-    for line in body.lines() {
-        if let Some(rest) = line.trim().strip_prefix("## ") {
-            let rest = rest.trim();
-            let (label, title) = match rest.split_once('·') {
-                Some((label, title)) => (label.trim(), title.trim().to_string()),
-                None => (rest, String::new()),
+/// 去掉行首的角色标题（`## 输入`、`## 内化 · 得到第 3 讲`、`## 输出`）。
+///
+/// 顺手把空行收一收：标题行拿掉之后会留下两三行连着空行，看着像文档破了洞。
+fn strip_role_headers(body: &str) -> String {
+    let kept: Vec<&str> = body
+        .lines()
+        .filter(|line| {
+            let Some(rest) = line.trim().strip_prefix("## ") else {
+                return true;
             };
-            if let Some(role) = role_of_label(label) {
-                if let Some(done) = current.take() {
-                    sections.push(done);
-                }
-                current = Some((role.to_string(), title, String::new()));
-                continue;
-            }
-        }
-        match current.as_mut() {
-            Some((_, _, content)) => {
-                content.push_str(line);
-                content.push('\n');
-            }
-            None => {
-                preamble.push_str(line);
-                preamble.push('\n');
-            }
-        }
-    }
-    if let Some(done) = current.take() {
-        sections.push(done);
-    }
+            let (label, _) = match rest.trim().split_once('·') {
+                Some((label, title)) => (label.trim(), title.trim()),
+                None => (rest.trim(), ""),
+            };
+            role_of_label(label).is_none()
+        })
+        .collect();
+    normalize_blank_lines(&kept.join("\n"))
+}
 
-    let preamble = preamble.trim().to_string();
-    if sections.is_empty() {
-        return vec![("internalize".to_string(), String::new(), preamble)];
+/// 连续空行压成一个空行，首尾空白去掉。
+fn normalize_blank_lines(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue; // 空行不写出去，段落之间统一补一个
+        }
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(line.trim_end());
     }
-    if !preamble.is_empty() {
-        let mut first = sections.remove(0);
-        first.2 = format!("{preamble}\n\n{}", first.2.trim_start());
-        sections.insert(0, first);
-    }
-    sections
-        .into_iter()
-        .map(|(role, title, content)| (role, title, content.trim().to_string()))
-        .collect()
+    out
 }
 
 /// 把拆解结果写进 parts：同角色按顺序对位更新，多出来的删掉，不够的新建。
@@ -674,9 +674,8 @@ pub fn create(
     )
     .map_err(|e| format!("新建失败：{e}"))?;
 
-    if !is_dir {
-        save_parts(conn, &id, &[("internalize".to_string(), String::new(), String::new())])?;
-    }
+    // 新建的笔记**不预置空段**：库里没有段，装配出来就是一张白纸，
+    // 不会先看到一行「## 内化」。第一次保存时按内容自然长出一段。
     Ok(path)
 }
 
@@ -1143,6 +1142,7 @@ pub fn export_markdown(conn: &Connection, out_dir: &Path) -> Result<usize, Strin
 /// 2. 「内化」段里残留的 frontmatter 摘到 `notes.front`
 /// 3. 删掉块索引——卡片已经自带快照，不再依赖它
 /// 4. 收拾带扩展名的重复路径（`笔记方法/检索练习.md`）
+/// 5. 收拾"三段"时代的残留：空段删掉，正文里的 `## 内化` 之类标题去掉，多段并成一段
 pub fn migrate_collections(conn: &Connection) -> Result<usize, String> {
     let now = now_ms();
     let mut moved = 0usize;
@@ -1215,8 +1215,83 @@ pub fn migrate_collections(conn: &Connection) -> Result<usize, String> {
     // 5) 老路径的 `.md` 重复行退场（见函数注释）
     moved += retire_extension_paths(conn)?;
 
+    // 6) "三段"时代的残留退场
+    moved += retire_section_parts(conn)?;
+
     reindex_links(conn)?;
     Ok(moved)
+}
+
+/// 收拾"一篇笔记由输入 / 内化 / 输出三段组成"那个模型留下的痕迹。
+///
+/// 三件事，都只碰"应用自己加的东西"：
+/// - 空段删掉（从前新建笔记会预置一个空的「内化」段，它让每篇笔记都顶着一行标题）
+/// - 正文里行首的 `## 输入 / ## 内化 / ## 输出` 去掉（是装配时写进去的，用户没写过）
+/// - 剩下多段就并成一段：角色在库里仍有列，但正文只有一段
+fn retire_section_parts(conn: &Connection) -> Result<usize, String> {
+    let notes = all_notes(conn)?;
+    let mut changed = 0usize;
+
+    for note in notes.iter().filter(|note| !note.is_dir()) {
+        let parts = parts_of(conn, &note.id)?;
+        if parts.is_empty() {
+            continue; // 新建的笔记就是没有段，正常
+        }
+
+        let mut kept: Vec<Part> = Vec::new();
+        for part in parts {
+            if part.content.trim().is_empty() {
+                conn.execute("DELETE FROM parts WHERE id = ?1", [&part.id])
+                    .map_err(|e| e.to_string())?;
+                changed += 1;
+                continue;
+            }
+            let cleaned = strip_role_headers(&part.content).trim().to_string();
+            if cleaned != part.content {
+                changed += 1;
+            }
+            kept.push(Part {
+                content: cleaned,
+                ..part
+            });
+        }
+
+        match kept.len() {
+            0 => {}
+            1 => {
+                let only = &kept[0];
+                conn.execute(
+                    "UPDATE parts SET role = 'internalize', title = '', content = ?1, updated_at = ?2
+                     WHERE id = ?3",
+                    params![only.content, now_ms(), only.id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            _ => {
+                let joined = kept
+                    .iter()
+                    .map(|part| part.content.trim())
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                let keep_id = kept[0].id.clone();
+                // 标题只在唯一一段上有意义，合并时丢掉
+                conn.execute(
+                    "UPDATE parts SET role = 'internalize', title = '', content = ?1, updated_at = ?2
+                     WHERE id = ?3",
+                    params![joined, now_ms(), keep_id],
+                )
+                .map_err(|e| e.to_string())?;
+                for extra in kept.iter().skip(1) {
+                    conn.execute("DELETE FROM parts WHERE id = ?1", [&extra.id])
+                        .map_err(|e| e.to_string())?;
+                }
+                changed += 1;
+            }
+        }
+    }
+
+    Ok(changed)
 }
 
 /// 收拾"同一个文件在库里有两行"的历史遗留。
@@ -1437,8 +1512,8 @@ mod tests {
         let text = read(&conn, "笔记方法/甲").unwrap().content;
         assert!(text.starts_with("---\nstatus: 内化"), "{text}");
         assert!(text.contains("tags: [a, b]"));
-        assert!(text.contains("## 内化"));
         assert!(text.contains("一条陈述"));
+        assert!(!text.contains("## 内化"), "导入的正文不该被套上角色标题：{text}");
 
         let tree = tree(&conn).unwrap();
         assert!(tree[0].is_dir);
@@ -1663,6 +1738,97 @@ mod tests {
         import_vault(conn, root)
     }
 
+    /// 新建的笔记是一张白纸：不该带上「## 内化」这种空小节标题。
+    #[test]
+    fn a_new_note_is_empty_and_grows_its_first_section_on_save() {
+        let (root, conn) = temp_env("empty-note");
+        let path = create(&conn, "", "白纸", false).unwrap();
+
+        assert_eq!(read(&conn, &path).unwrap().content, "", "新建的笔记应当是空的");
+        let note = note_by_path(&conn, &path).unwrap().unwrap();
+        assert!(parts_of(&conn, &note.id).unwrap().is_empty(), "不该预置空段");
+
+        // 什么都不写就保存：还是空的（没有内容就不该长出小节）
+        write(&conn, &path, "", None).unwrap();
+        assert_eq!(read(&conn, &path).unwrap().content, "", "空文档不该装配出标题");
+
+        // 写了东西就是正经正文，不会再被套上「## 内化」
+        write(&conn, &path, "第一句话\n", None).unwrap();
+        assert_eq!(read(&conn, &path).unwrap().content, "第一句话\n");
+
+        // 用户自己写的小节标题（不是 输入/内化/输出 那三个角色名）照旧留着
+        write(&conn, &path, "## 卡片盒\n\n甲\n\n## 我的加工\n\n乙\n", None).unwrap();
+        let text = read(&conn, &path).unwrap().content;
+        assert_eq!(text, "## 卡片盒\n\n甲\n\n## 我的加工\n\n乙\n", "{text}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 旧的 `## 输入 / ## 内化 / ## 输出` 不会再出现在正文里。
+    #[test]
+    fn role_headers_never_reach_the_document() {
+        let (root, conn) = temp_env("role-headers");
+        create(&conn, "", "三段时代", false).unwrap();
+        write(&conn, "", "", None).unwrap_err(); // 空路径应当报错，不该静默
+        let doc = "---\nstatus: internalizing\n---\n\n## 输入\n\n得到课程第 3 讲\n\n## 内化\n\n- 检索练习有效\n\n## 输出\n\n我的一篇成品\n";
+        write(&conn, "三段时代", doc, None).unwrap();
+
+        let text = read(&conn, "三段时代").unwrap().content;
+        assert!(!text.contains("## 输入"), "{text}");
+        assert!(!text.contains("## 内化"), "{text}");
+        assert!(!text.contains("## 输出"), "{text}");
+        // 内容一个字不少，只是合并成一篇正文
+        assert!(text.contains("得到课程第 3 讲"), "{text}");
+        assert!(text.contains("- 检索练习有效"), "{text}");
+        assert!(text.contains("我的一篇成品"), "{text}");
+        assert!(text.starts_with("---\nstatus: internalizing"), "{text}");
+
+        // 库里只有一段，而且往返稳定
+        let note = note_by_path(&conn, "三段时代").unwrap().unwrap();
+        let parts = parts_of(&conn, &note.id).unwrap();
+        assert_eq!(parts.len(), 1, "多段应当并为一段：{parts:?}");
+        assert_eq!(parts[0].role, "internalize");
+        write(&conn, "三段时代", &text, None).unwrap();
+        assert_eq!(text, read(&conn, "三段时代").unwrap().content, "往返应当稳定");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 老库里"每篇都顶着一行内化"的残留，打开仓库时会被收拾干净。
+    #[test]
+    fn section_parts_are_retired_on_migration() {
+        let (root, conn) = temp_env("retire-sections");
+        create(&conn, "", "老笔记", false).unwrap();
+        let note = note_by_path(&conn, "老笔记").unwrap().unwrap();
+        let now = now_ms();
+        // 造出三段时代的形态：一个空段 + 两段带正文，正文里还带着角色标题
+        for (id, role, content) in [
+            ("p1", "internalize", ""),
+            ("p2", "input", "## 输入\n\n材料原文\n"),
+            ("p3", "internalize", "## 内化\n\n我的加工\n"),
+        ] {
+            conn.execute(
+                "INSERT INTO parts (id, note_id, role, title, position, content, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, '', 0, ?4, ?5, ?5)",
+                params![id, note.id, role, content, now],
+            )
+            .unwrap();
+        }
+
+        assert!(retire_section_parts(&conn).unwrap() > 0);
+
+        let parts = parts_of(&conn, &note.id).unwrap();
+        assert_eq!(parts.len(), 1, "空段删掉、两段并一段：{parts:?}");
+        assert_eq!(parts[0].role, "internalize");
+        assert_eq!(parts[0].content, "材料原文\n\n我的加工");
+        assert_eq!(read(&conn, "老笔记").unwrap().content, "材料原文\n\n我的加工\n");
+
+        // 幂等
+        assert_eq!(retire_section_parts(&conn).unwrap(), 0);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn write_splits_sections_into_parts() {
         let (root, conn) = temp_env("split");
@@ -1672,20 +1838,24 @@ mod tests {
 
         let note = note_by_path(&conn, "集合").unwrap().unwrap();
         let parts = parts_of(&conn, &note.id).unwrap();
-        assert_eq!(parts.len(), 3);
-        let content_of = |role: &str| parts.iter().find(|p| p.role == role).unwrap().content.clone();
-        assert_eq!(content_of("input"), "得到课程第 3 讲");
-        assert_eq!(content_of("internalize"), "- 检索练习有效");
-        assert_eq!(content_of("output"), "我的一篇成品");
+        assert_eq!(parts.len(), 1, "现在一篇笔记只有一段正文");
+        assert_eq!(parts[0].role, "internalize");
+        assert!(parts[0].content.contains("得到课程第 3 讲"));
+        assert!(parts[0].content.contains("- 检索练习有效"));
+        assert!(parts[0].content.contains("我的一篇成品"));
 
-        // 装配是拆解的逆运算：读回来再存一遍，段数与内容都不变
+        // frontmatter 单独存档，不在正文里
+        assert_eq!(note.status, "internalizing");
+        assert!(read(&conn, "集合").unwrap().content.starts_with("---\nstatus: internalizing"));
+
+        // 装配是拆解的逆运算：读回来再存一遍，内容不变
         let text = read(&conn, "集合").unwrap().content;
         write(&conn, "集合", &text, None).unwrap();
         let again = parts_of(&conn, &note.id).unwrap();
-        assert_eq!(again.len(), 3);
+        assert_eq!(again.len(), 1);
         assert_eq!(text, read(&conn, "集合").unwrap().content, "往返应当稳定");
 
-        // 没有小节标题时整篇归「内化」——旧笔记不用改一个字
+        // 普通正文照旧
         write(&conn, "集合", "就是一整篇普通笔记\n\n再来一段\n", None).unwrap();
         let parts = parts_of(&conn, &note.id).unwrap();
         assert_eq!(parts.len(), 1);
@@ -1695,8 +1865,10 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// 从前 `## 输入 · 第一讲` 这种带标题的多段模型，现在归成一段正文：
+    /// 内容一个字不丢，只是不再有"段"这层壳。
     #[test]
-    fn extra_parts_of_the_same_role_are_kept() {
+    fn titled_sections_collapse_into_one_body() {
         let (root, conn) = temp_env("multipart");
         create(&conn, "", "多份输入", false).unwrap();
         write(
@@ -1707,18 +1879,14 @@ mod tests {
         )
         .unwrap();
         let note = note_by_path(&conn, "多份输入").unwrap().unwrap();
-        let inputs: Vec<Part> = parts_of(&conn, &note.id)
-            .unwrap()
-            .into_iter()
-            .filter(|p| p.role == "input")
-            .collect();
-        assert_eq!(inputs.len(), 2, "同一角色可以有多段");
-        assert_eq!(inputs[0].title, "第一讲");
-        assert_eq!(inputs[1].title, "第二讲");
+        let parts = parts_of(&conn, &note.id).unwrap();
+        assert_eq!(parts.len(), 1, "只有一段正文：{parts:?}");
+        assert_eq!(parts[0].content, "甲\n\n乙\n\n丙");
 
         let text = read(&conn, "多份输入").unwrap().content;
-        assert!(text.contains("## 输入 · 第一讲"));
-        assert!(text.contains("## 输入 · 第二讲"));
+        assert_eq!(text, "甲\n\n乙\n\n丙\n");
+        assert!(!text.contains("## 输入"), "{text}");
+
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -1773,12 +1941,13 @@ mod tests {
     #[test]
     fn export_writes_assembled_markdown() {
         let (root, conn) = temp_env("export2");
-        create_with_content(&conn, "", "甲", "## 内化\n\n正文甲\n").unwrap();
+        create_with_content(&conn, "", "甲", "---\nstatus: 内化\n---\n\n正文甲\n").unwrap();
         let out = root.join("导出");
         assert_eq!(export_markdown(&conn, &out).unwrap(), 1);
         let text = fs::read_to_string(out.join("甲.md")).unwrap();
-        assert!(text.contains("## 内化"));
+        assert!(text.contains("status: 内化"), "frontmatter 要带上：{text}");
         assert!(text.contains("正文甲"));
+        assert!(!text.contains("## 内化"), "角色标题不该出现在导出里：{text}");
         let _ = fs::remove_dir_all(&root);
     }
 }

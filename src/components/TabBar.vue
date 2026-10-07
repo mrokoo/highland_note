@@ -34,7 +34,6 @@ function tabMenu(event: MouseEvent, path: string) {
       @mousedown.middle.prevent="closeTab(tab.path)"
       @contextmenu="tabMenu($event, tab.path)"
     >
-      <span v-if="tab.dirty" class="dirty-dot" />
       <span class="tab-title">{{ tab.title }}</span>
       <button class="tab-close" title="关闭 (Ctrl+W)" @click.stop="closeTab(tab.path)">
         <X :size="13" :stroke-width="2" />

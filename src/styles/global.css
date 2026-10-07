@@ -337,6 +337,15 @@ body.resizing * {
   margin: 0 -3px;
   background: transparent;
   cursor: col-resize;
+  /* 侧栏收起时把热区也收掉，跟着一起动，免得剩一条抓不住的线 */
+  transition: width 0.16s ease, margin 0.16s ease, opacity 0.12s ease;
+}
+
+.splitter.hidden {
+  width: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .splitter::after,
@@ -516,6 +525,20 @@ body.resizing .pane-splitter::after {
   min-width: 180px;
   background: var(--bg-sidebar);
   border-right: 1px solid transparent;
+  /*
+   * 收起/展开是一段短过渡（不淡入淡出，只把宽度收掉）：
+   * 0.16s 的缓出，快到不挡手，又足够让人看清"它去哪了"。
+   * 内容淡出比宽度更早结束，免得文字在收窄过程中被挤成一团。
+   */
+  transition: width 0.16s ease, opacity 0.12s ease;
+}
+
+.sidebar.collapsed {
+  min-width: 0;
+  width: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 /* 动作行是一排等大的图标按钮，靠 tooltip 说明用途 */
@@ -822,13 +845,7 @@ body.resizing .pane-splitter::after {
   color: var(--text-strong);
 }
 
-.tab .dirty-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: none;
-}
+/* 从前这里有一个"未保存"小圆点：保存全自动之后就没有它存在的理由了 */
 
 /* ---------------------------------------------------------- 状态栏 */
 
@@ -853,18 +870,13 @@ body.resizing .pane-splitter::after {
   color: var(--danger);
 }
 
-/* 状态栏里的保存按钮：平时就是一行小字，点一下才写盘 */
+/* 状态栏里的保存状态：纯提示，不可点（自动保存是唯一路径） */
 .status-save {
   padding: 1px 7px;
   margin-right: -7px;
   border-radius: 4px;
   font-size: 12px;
-  transition: background 0.12s, color 0.12s;
-}
-
-.status-save:hover {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  transition: color 0.15s;
 }
 
 .status-save.dirty {
@@ -927,6 +939,8 @@ body.resizing .pane-splitter::after {
   flex: none;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border);
+  /* 和左边栏同一段节奏：收展时宽度过渡，不做花哨的淡入淡出 */
+  transition: width 0.16s ease;
 }
 
 /* 收起后只剩一条竖排图标栏，和左边栏对称 */

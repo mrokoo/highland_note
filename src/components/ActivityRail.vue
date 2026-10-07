@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { ArrowRightLeft, FolderTree, GraduationCap, LayoutDashboard, ListTree, Search, Settings } from "lucide-vue-next";
+import { FolderTree, GraduationCap, LayoutDashboard, ListTree, Search, Settings } from "lucide-vue-next";
 import { computed, onMounted } from "vue";
-import { openQuickSwitcher, refreshReviewStats, startReview, store, type SidebarTab } from "../lib/store";
+import { refreshReviewStats, startReview, store, type SidebarTab } from "../lib/store";
+
+/**
+ * 左侧工具条，从上到下三组：
+ *
+ * 1. **视图**（工作台 / 复习）—— 换掉中间那一块，互相独立
+ * 2. **列表面板**（文件 / 搜索 / 目录）—— 同一时刻只开一个，再点收起
+ * 3. **设置**（固定在底部）
+ *
+ * 「跳转」曾经在这里，现在撤了：新建在文件面板顶部，跳转有 `Ctrl` + `P`，
+ * 留一个图标只会让真正常用的那两个更难找。
+ */
 
 /** 侧栏徽标：今日到期 + 新卡。 */
 const dueCount = computed(() => store.reviewStats?.dueToday ?? 0);
@@ -17,10 +28,6 @@ interface RailItem {
   icon: unknown;
 }
 
-/**
- * 左侧工具/菜单栏：上半是「跳转」这类瞬时动作，下半是列表面板的切换，
- * 设置固定在底部。以后加复习、知识树只要往 items 里加一项。
- */
 const items: RailItem[] = [
   { key: "files", label: "文件", hint: "文件 · Ctrl+Shift+E", icon: FolderTree },
   { key: "search", label: "搜索", hint: "全文搜索 · Ctrl+Shift+F", icon: Search },
@@ -58,10 +65,6 @@ function select(key: SidebarTab) {
         <GraduationCap :size="20" :stroke-width="1.7" />
         <span class="rail-label">复习</span>
         <span v-if="dueCount" class="rail-badge">{{ dueCount > 99 ? "99+" : dueCount }}</span>
-      </button>
-      <button class="rail-button" title="快速跳转 · Ctrl+P" @click="openQuickSwitcher">
-        <ArrowRightLeft :size="20" :stroke-width="1.7" />
-        <span class="rail-label">跳转</span>
       </button>
     </div>
 

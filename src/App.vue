@@ -147,12 +147,6 @@ function appMenu(event: MouseEvent) {
   openMenu(event, [
     { label: "新建笔记", shortcut: "Ctrl+N", action: () => void createNote("") },
     { label: "快速跳转", shortcut: "Ctrl+P", action: openQuickSwitcher },
-    {
-      label: "保存当前笔记",
-      shortcut: "Ctrl+S",
-      disabled: !activeTab.value,
-      action: () => void saveActive(),
-    },
     { separator: true },
     {
       label: store.settings.showSidebar ? "隐藏侧边栏" : "显示侧边栏",
@@ -299,10 +293,11 @@ function startSidebarResize(event: MouseEvent) {
 }
 
 watch(
-  () => [store.vault?.name, activeTab.value?.title, activeTab.value?.dirty],
+  () => [store.vault?.name, activeTab.value?.title],
   () => {
     const parts: string[] = [];
-    if (activeTab.value) parts.push(activeTab.value.dirty ? `• ${activeTab.value.title}` : activeTab.value.title);
+    // 标题里不带"未保存"标记：保存是全自动的，界面不需要提醒这件事
+    if (activeTab.value) parts.push(activeTab.value.title);
     if (store.vault) parts.push(store.vault.name);
     document.title = parts.length ? `${parts.join(" — ")} · Highland Note` : "Highland Note";
   },
@@ -407,8 +402,14 @@ onBeforeUnmount(() => {
 
     <div class="main">
       <ActivityRail />
-      <SideBar v-if="store.vault && store.settings.showSidebar" />
-      <div v-if="store.vault && store.settings.showSidebar" class="splitter" @mousedown="startSidebarResize" />
+      <!-- 收起时不卸载：留一段宽度过渡，收起/展开才看得出来是"收进去"了 -->
+      <SideBar v-if="store.vault" />
+      <div
+        v-if="store.vault"
+        class="splitter"
+        :class="{ hidden: !store.settings.showSidebar }"
+        @mousedown="startSidebarResize"
+      />
 
       <section class="workspace">
         <div class="workspace-main">
