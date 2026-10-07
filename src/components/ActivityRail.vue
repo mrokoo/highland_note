@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FolderTree, GraduationCap, LayoutDashboard, ListTree, Search, Settings } from "lucide-vue-next";
-import { computed, onMounted } from "vue";
+import { onMounted } from "vue";
 import { refreshReviewStats, startReview, store, type SidebarTab } from "../lib/store";
 
 /**
@@ -12,12 +12,12 @@ import { refreshReviewStats, startReview, store, type SidebarTab } from "../lib/
  *
  * 「跳转」曾经在这里，现在撤了：新建在文件面板顶部，跳转有 `Ctrl` + `P`，
  * 留一个图标只会让真正常用的那两个更难找。
+ * 「复习」上的到期数字徽标也撤了：数字是每天变的，挂在这儿只会一直催你；
+ * 今日到期在卡片面板里看得见（进入复习后一张张过就是了）。
  */
 
-/** 侧栏徽标：今日到期 + 新卡。 */
-const dueCount = computed(() => store.reviewStats?.dueToday ?? 0);
-
 onMounted(() => {
+  // 仍然要拉一次：卡片面板的小结和左侧「复习」入口都要它把数据准备好
   void refreshReviewStats();
 });
 
@@ -57,14 +57,9 @@ function select(key: SidebarTab) {
         <LayoutDashboard :size="20" :stroke-width="1.7" />
         <span class="rail-label">工作台</span>
       </button>
-      <button
-        class="rail-button rail-review"
-        title="复习 · Ctrl+Shift+R"
-        @click="startReview()"
-      >
+      <button class="rail-button" title="复习 · Ctrl+Shift+R" @click="startReview()">
         <GraduationCap :size="20" :stroke-width="1.7" />
         <span class="rail-label">复习</span>
-        <span v-if="dueCount" class="rail-badge">{{ dueCount > 99 ? "99+" : dueCount }}</span>
       </button>
     </div>
 

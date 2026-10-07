@@ -64,6 +64,28 @@ check(
   rail.join(" → "),
 );
 
+// ---- 1b) 「复习」上不该有到期数字徽标；仓库页脚用数据库图标
+const badges = await evaluate(`
+  (() => {
+    const rail = document.querySelector('.rail');
+    const badge = rail?.querySelector('.rail-badge');
+    const footer = document.querySelector('.vault-footer');
+    const icon = footer?.querySelector('svg');
+    return {
+      badge: badge ? badge.textContent.trim() : null,
+      footerIcon: icon ? icon.className.baseVal || icon.getAttribute('class') : null,
+      footerTitle: footer?.getAttribute('title') ?? null,
+    };
+  })()
+`);
+check("「复习」上没有数字徽标", badges.badge === null, badges.badge ?? "没有");
+check(
+  "仓库页脚图标是数据库（不再是文件夹树）",
+  String(badges.footerIcon ?? "").includes("lucide-database"),
+  String(badges.footerIcon),
+);
+check("仓库页脚提示里说清了笔记存在 .rnote/", String(badges.footerTitle ?? "").includes(".rnote/"), String(badges.footerTitle));
+
 // ---- 2) 状态栏的保存状态不是按钮（要先打开一篇笔记，状态栏才有这一段）
 const saveEl = await evaluate(`
   (async () => {

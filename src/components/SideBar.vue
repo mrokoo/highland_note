@@ -3,9 +3,9 @@ import { computed, nextTick, ref, watch } from "vue";
 import {
   ChevronsDownUp,
   ChevronsUpDown,
+  Database,
   FilePlus,
   FolderPlus,
-  FolderTree,
   RefreshCw,
 } from "lucide-vue-next";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -229,7 +229,7 @@ function highlight(text: string, query: string): string {
           <template v-else>
             <div>这个仓库里还没有笔记</div>
             <div class="sidebar-empty-hint">
-              按 <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建；已有的 .md 只在第一次打开仓库时收进库
+              按 <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建一篇
             </div>
           </template>
         </div>
@@ -273,9 +273,13 @@ function highlight(text: string, query: string): string {
       </div>
     </template>
 
-    <!-- 仓库页脚：切换 / 管理当前仓库 -->
-    <button class="vault-footer" :title="store.vault?.path ?? ''" @click="vaultMenu">
-      <FolderTree :size="15" :stroke-width="1.8" class="vault-icon" />
+    <!-- 仓库页脚：切换 / 管理当前仓库。图标用数据库：笔记和卡片就住在仓库的 .rnote/ 里 -->
+    <button
+      class="vault-footer"
+      :title="store.vault ? `${store.vault.name}\n${store.vault.path}\n笔记与卡片存在 .rnote/ 里` : ''"
+      @click="vaultMenu"
+    >
+      <Database :size="15" :stroke-width="1.8" class="vault-icon" />
       <span class="vault-footer-name">{{ store.vault?.name ?? "未打开仓库" }}</span>
       <ChevronsUpDown :size="13" :stroke-width="2" class="vault-caret" />
     </button>
