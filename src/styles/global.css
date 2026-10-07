@@ -700,6 +700,22 @@ body.resizing .pane-splitter::after {
   text-align: center;
 }
 
+.sidebar-empty-hint {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.7;
+  opacity: 0.85;
+}
+
+.sidebar-empty-hint kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
 /* ---------------------------------------------------------- 标签栏 */
 
 /*
@@ -1582,6 +1598,23 @@ body.resizing .pane-splitter::after {
   gap: 8px;
   justify-content: center;
   margin-bottom: 22px;
+}
+
+/* 讲清楚"笔记存在哪"，省得用户去文件夹里找 .md */
+.welcome-note {
+  margin: 0 0 22px;
+  color: var(--text-faint);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.welcome-note code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .recent-list {

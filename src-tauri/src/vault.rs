@@ -1,5 +1,11 @@
 //! 仓库（vault）读写：目录树扫描、笔记 CRUD、全文搜索。
 //!
+//! **注意**：内容层已经搬到 `notes.rs`（库是真身、文件是只写镜像）。本文件里那套
+//! 直接读写 .md 的实现（tree / read / write / create / rename / move / delete / search）
+//! 现在只剩 `Vault::new` / `info` / `root` 在被使用，其余是**待清理的历史实现**，
+//! 留作参考（将来做「导出为纯文件仓库」可能会用到）。
+#![allow(dead_code)]
+//!
 //! 所有对外暴露的路径都是「相对仓库根的、使用 `/` 分隔的」路径，
 //! 由 `resolve` 统一做越界校验，避免前端传入 `..` 之类逃出仓库。
 
@@ -15,6 +21,7 @@ const SKIP_DIRS: &[&str] = &[
     ".obsidian",
     ".trash",
     ".highland",
+    ".rnote",
     "node_modules",
     ".vscode",
     ".idea",
@@ -45,6 +52,9 @@ pub struct FileNode {
     pub is_dir: bool,
     pub mtime: i64,
     pub size: u64,
+    /// 笔记库里的稳定 id（走 DB 的树才有；直接扫盘的老路径为 None）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<FileNode>,
 }
@@ -65,6 +75,7 @@ pub struct NoteMeta {
     pub title: String,
     pub folder: String,
     pub mtime: i64,
+    pub size: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,6 +218,7 @@ fn build_tree(dir: &Path, vault: &Path, depth: usize) -> Vec<FileNode> {
             nodes.push(FileNode {
                 name,
                 path: to_rel(vault, &path),
+                id: None,
                 is_dir: true,
                 mtime: mtime_ms(&meta),
                 size: 0,
@@ -216,6 +228,7 @@ fn build_tree(dir: &Path, vault: &Path, depth: usize) -> Vec<FileNode> {
             nodes.push(FileNode {
                 name,
                 path: to_rel(vault, &path),
+                id: None,
                 is_dir: false,
                 mtime: mtime_ms(&meta),
                 size: meta.len(),
@@ -424,6 +437,7 @@ impl Vault {
                 folder: rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default(),
                 path: rel,
                 mtime: mtime_ms(&meta),
+                size: meta.len(),
             });
         }
         out.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));

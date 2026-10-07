@@ -15,6 +15,10 @@ import WelcomeScreen from "./components/WelcomeScreen.vue";
 import QuickSwitcher from "./components/QuickSwitcher.vue";
 import ModalHost from "./components/ModalHost.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import Workbench from "./components/Workbench.vue";
+import CapturePanel from "./components/CapturePanel.vue";
+import CardCompose from "./components/CardCompose.vue";
+import ReviewView from "./components/ReviewView.vue";
 import ContextMenu from "./components/ContextMenu.vue";
 import RightSidebar from "./components/RightSidebar.vue";
 import {
@@ -22,8 +26,11 @@ import {
   closeTab,
   createNote,
   cycleViewMode,
+  importMaterial,
   init,
   openMenu,
+  refreshReviewStats,
+  startReview,
   openQuickSwitcher,
   pickVault,
   saveActive,
@@ -210,13 +217,38 @@ function onKeydown(event: KeyboardEvent) {
         cycleViewMode();
       }
       break;
+    case "i":
+      // 快速捕获：什么时候都能按，不打断手头的事
+      if (event.shiftKey) {
+        event.preventDefault();
+        store.showWorkbench = false;
+        store.captureOpen = true;
+      }
+      break;
+    case "m":
+      if (event.shiftKey) {
+        event.preventDefault();
+        void importMaterial();
+      }
+      break;
+    case "r":
+      // 复习：今日到期 + 新卡
+      if (event.shiftKey) {
+        event.preventDefault();
+        void startReview();
+      }
+      break;
     case "b":
       event.preventDefault();
       store.settings.showSidebar = !store.settings.showSidebar;
       break;
     case "w":
       event.preventDefault();
-      if (store.activePath) closeTab(store.activePath);
+      if (event.shiftKey) {
+        store.showWorkbench = !store.showWorkbench;
+      } else if (store.activePath) {
+        closeTab(store.activePath);
+      }
       break;
     case "o":
       if (event.shiftKey) {
@@ -279,7 +311,7 @@ watch(
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("contextmenu", blockNativeMenu, { capture: true });
-  void init();
+  void init().then(() => refreshReviewStats());
   void syncMaximized();
   void appWindow
     .onResized(() => void syncMaximized())
@@ -380,9 +412,11 @@ onBeforeUnmount(() => {
 
       <section class="workspace">
         <div class="workspace-main">
-          <TabBar v-if="store.tabs.length" />
+          <TabBar v-if="store.tabs.length && !store.showWorkbench" />
 
-          <div ref="panesRef" class="panes">
+          <Workbench v-if="store.showWorkbench && store.vault" />
+
+          <div v-show="!store.showWorkbench" ref="panesRef" class="panes">
             <EditorPane v-if="store.vault && activeTab" v-show="showEditor" :style="editorPaneStyle" />
             <div
               v-if="isSplit"
@@ -403,7 +437,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <StatusBar />
+          <StatusBar v-show="!store.showWorkbench" />
         </div>
       </section>
 
@@ -418,6 +452,9 @@ onBeforeUnmount(() => {
     <WelcomeScreen v-if="!store.vault" />
     <QuickSwitcher v-if="store.quickSwitcher" />
     <SettingsPanel v-if="store.showSettings" />
+    <CapturePanel />
+    <CardCompose />
+    <ReviewView />
     <ModalHost />
     <ContextMenu v-if="store.menu" />
 

@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { ArrowRightLeft, FolderTree, ListTree, Search, Settings } from "lucide-vue-next";
-import { openQuickSwitcher, store, type SidebarTab } from "../lib/store";
+import { ArrowRightLeft, FolderTree, GraduationCap, LayoutDashboard, ListTree, Search, Settings } from "lucide-vue-next";
+import { computed, onMounted } from "vue";
+import { openQuickSwitcher, refreshReviewStats, startReview, store, type SidebarTab } from "../lib/store";
+
+/** 侧栏徽标：今日到期 + 新卡。 */
+const dueCount = computed(() => store.reviewStats?.dueToday ?? 0);
+
+onMounted(() => {
+  void refreshReviewStats();
+});
 
 interface RailItem {
   key: SidebarTab;
@@ -33,6 +41,24 @@ function select(key: SidebarTab) {
 <template>
   <nav class="rail">
     <div class="rail-items">
+      <button
+        class="rail-button"
+        :class="{ active: store.showWorkbench }"
+        title="工作台 · Ctrl+Shift+W"
+        @click="store.showWorkbench = !store.showWorkbench"
+      >
+        <LayoutDashboard :size="20" :stroke-width="1.7" />
+        <span class="rail-label">工作台</span>
+      </button>
+      <button
+        class="rail-button rail-review"
+        title="复习 · Ctrl+Shift+R"
+        @click="startReview()"
+      >
+        <GraduationCap :size="20" :stroke-width="1.7" />
+        <span class="rail-label">复习</span>
+        <span v-if="dueCount" class="rail-badge">{{ dueCount > 99 ? "99+" : dueCount }}</span>
+      </button>
       <button class="rail-button" title="快速跳转 · Ctrl+P" @click="openQuickSwitcher">
         <ArrowRightLeft :size="20" :stroke-width="1.7" />
         <span class="rail-label">跳转</span>

@@ -622,6 +622,10 @@ export interface EditorOptions {
   onChange: (text: string) => void;
   onCursor: (info: CursorInfo) => void;
   onWikilink?: (target: string) => void;
+  /** Ctrl+Shift+B：把光标/选区所在的段落标记成块 */
+  onExtractBlock?: () => void;
+  /** Ctrl+Shift+C：为选中的块造卡 */
+  onAddCard?: () => void;
   /** 把笔记里的图片地址换成 webview 能加载的地址 */
   imageSource?: (url: string) => string | null;
   /** 把表格源码渲染成 HTML（复用预览那套 Markdown 渲染） */
@@ -686,6 +690,23 @@ function buildExtensions(options: EditorOptions, compartments: EditorCompartment
     EditorView.lineWrapping,
     placeholder("开始输入… 支持 Markdown、[[双链]] 与 #标签"),
     keymap.of([
+      // RNote 的两个动作：块与卡片。放在默认键位表最前面，先被它们接住
+      {
+        key: "Mod-Shift-b",
+        preventDefault: true,
+        run: () => {
+          options.onExtractBlock?.();
+          return true;
+        },
+      },
+      {
+        key: "Mod-Shift-c",
+        preventDefault: true,
+        run: () => {
+          options.onAddCard?.();
+          return true;
+        },
+      },
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...searchKeymap,

@@ -221,7 +221,13 @@ function highlight(text: string, query: string): string {
           @menu="({ event, node }) => rowMenu(event, node)"
         />
         <div v-if="!store.tree.length" class="sidebar-empty">
-          {{ store.treeLoading ? "正在读取…" : "这个仓库里还没有笔记" }}
+          <template v-if="store.treeLoading">正在读取…</template>
+          <template v-else>
+            <div>这个仓库里还没有笔记</div>
+            <div class="sidebar-empty-hint">
+              按 <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建；已有的 .md 只在第一次打开仓库时收进库
+            </div>
+          </template>
         </div>
       </div>
     </template>

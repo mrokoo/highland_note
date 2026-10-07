@@ -6,11 +6,16 @@ import { forgetVault, openVault, pickVault, store } from "../lib/store";
   <div class="welcome">
     <div class="welcome-card">
       <h1>Highland Note</h1>
-      <p class="subtitle">本地优先的 Markdown 笔记：一个文件夹就是一个仓库</p>
+      <p class="subtitle">本地优先的笔记仓库：一个文件夹装下你的全部笔记</p>
 
       <div class="welcome-actions">
         <button class="button primary" @click="pickVault">打开文件夹作为仓库</button>
       </div>
+
+      <p class="welcome-note">
+        笔记住在仓库里的 <code>.rnote/</code> 里，换机器拷走整个文件夹就行。
+        文件夹里已有的 <code>.md</code> 会在第一次打开时收进来，之后以库为准。
+      </p>
 
       <div v-if="store.settings.recentVaults.length" class="recent-list">
         <div class="label">最近打开</div>

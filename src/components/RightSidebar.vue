@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Columns2, Eye, Link, SquarePen } from "lucide-vue-next";
-import { ref } from "vue";
+import { Columns2, Eye, Layers, Link, SquarePen } from "lucide-vue-next";
+import { ref, watch } from "vue";
 import type { ViewMode } from "../lib/api";
-import { store } from "../lib/store";
+import { activeTab, refreshCards, store } from "../lib/store";
+import CardsPanel from "./CardsPanel.vue";
 import LinkPanel from "./LinkPanel.vue";
 
 /**
@@ -10,7 +11,7 @@ import LinkPanel from "./LinkPanel.vue";
  *
  * - 展开时：图标行在顶端，下面是当前功能的面板内容
  * - 收起时：只留一条竖排图标栏（和左边栏对称），点了就能再展开
- * - 以后加标签、日历这类功能，只要往 panels 里加一项
+ * - 两页功能：链接与反链、这篇笔记的卡片（加日历、标签这类，只要往 panels 里加一项）
  */
 
 interface ViewItem {
@@ -20,8 +21,9 @@ interface ViewItem {
 }
 
 interface PanelItem {
-  key: "links";
+  key: "links" | "cards";
   label: string;
+  icon: unknown;
 }
 
 const views: ViewItem[] = [
@@ -30,15 +32,27 @@ const views: ViewItem[] = [
   { key: "preview", label: "仅预览 · Ctrl+E", icon: Eye },
 ];
 
-/** 右侧面板的功能列表，目前只有「链接与反链」 */
-const panels: PanelItem[] = [{ key: "links", label: "链接与反链" }];
+/** 右侧面板的功能列表 */
+const panels: PanelItem[] = [
+  { key: "cards", label: "卡片视图", icon: Layers },
+  { key: "links", label: "链接与反链", icon: Link },
+];
 
-const activePanel = ref<PanelItem["key"]>("links");
+const activePanel = ref<PanelItem["key"]>("cards");
+
+/** 面板展开且停在「卡片」上时，数据必须是当前这篇笔记的。 */
+function syncCards(open = store.settings.showRightPanel) {
+  if (open && activePanel.value === "cards") void refreshCards();
+}
+
+watch(() => activeTab.value?.path, () => syncCards());
+watch(() => store.settings.showRightPanel, (open) => syncCards(open));
 
 function selectPanel(key: PanelItem["key"]) {
   if (!store.settings.showRightPanel) {
     store.settings.showRightPanel = true;
     activePanel.value = key;
+    syncCards(true);
     return;
   }
   if (activePanel.value === key) {
@@ -47,6 +61,7 @@ function selectPanel(key: PanelItem["key"]) {
     return;
   }
   activePanel.value = key;
+  syncCards(true);
 }
 </script>
 
@@ -78,12 +93,13 @@ function selectPanel(key: PanelItem["key"]) {
         :title="store.settings.showRightPanel ? `${panel.label} · 再点收起` : panel.label"
         @click="selectPanel(panel.key)"
       >
-        <Link :size="19" :stroke-width="1.75" />
+        <component :is="panel.icon" :size="19" :stroke-width="1.75" />
       </button>
     </div>
 
     <div v-if="store.settings.showRightPanel" class="right-body">
-      <LinkPanel v-if="activePanel === 'links'" />
+      <CardsPanel v-if="activePanel === 'cards'" />
+      <LinkPanel v-else />
     </div>
   </aside>
 </template>

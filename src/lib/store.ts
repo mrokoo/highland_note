@@ -4,13 +4,20 @@ import {
   api,
   folderOf,
   titleOf,
+  type Card,
+  type CardSummary,
   type FileNode,
   type LinkReport,
+  type NewCard,
   type NoteMeta,
+  type DueCard,
+  type NoteStatus,
+  type ReviewStats,
   type SearchHit,
   type Settings,
   type VaultInfo,
   type ViewMode,
+  type WorkflowNote,
 } from "./api";
 
 export interface Tab {
@@ -51,6 +58,40 @@ export interface MenuItem {
   danger?: boolean;
   action?: () => void;
 }
+
+/**
+ * 造卡弹窗的初始内容：**就是编辑器里选中的那些块**。
+ *
+ * 快照在这里就固定下来（`text` / `heading` / `line`），后面正文怎么改都不影响这张卡。
+ */
+export interface CardCompose {
+  /** 选中的块原文，多行时按行拼接 */
+  text: string;
+  /** 所在小节 */
+  heading: string;
+  /** 选区起始行（1 起） */
+  line: number;
+  /** 预填的问题 */
+  question: string;
+}
+
+/** 造卡弹窗的可变状态。 */
+export interface CardDialogState extends CardCompose {
+  path: string;
+  title: string;
+  angle: string;
+  answer: string;
+  /** 答案是否仍然跟随块原文（用户一动答案就关掉） */
+  followSource: boolean;
+  saving: boolean;
+  /** 选区里除第一块之外的其余块（勾上就一起建卡） */
+  extras: CardCompose[];
+  /** 这些块也一起建卡 */
+  withExtras: boolean;
+}
+
+/** 卡片面板的状态筛选。 */
+export type CardFilter = "all" | "new" | "due" | "learning" | "review";
 
 export interface MenuState {
   x: number;
@@ -117,6 +158,37 @@ export const store = reactive({
   reloadPath: "",
   reloadTick: 0,
   showSettings: false,
+  // ---- 工作流（P0）
+  /** 看板数据：全部笔记 + 状态 + 块/卡计数 */
+  workflow: [] as WorkflowNote[],
+  workflowLoading: false,
+  workflowSyncedAt: 0,
+  /** 工作台（今日 + 三列看板）是否占据主区域 */
+  showWorkbench: false,
+  /** 快速捕获浮层 */
+  captureOpen: false,
+  // ---- 复习（P1）
+  showReview: false,
+  reviewQueue: [] as DueCard[],
+  reviewIndex: 0,
+  reviewRevealed: false,
+  reviewStats: null as ReviewStats | null,
+  reviewAnswering: false,
+  /** 当前复习范围：null = 全部，否则是某一篇笔记的路径 */
+  reviewScope: null as string | null,
+  /** 每篇笔记的到期数量：path → { due, total } */
+  noteDue: {} as Record<string, { due: number; total: number }>,
+  // ---- 卡片（选中块 → 建卡 → 右侧面板）
+  /** 当前笔记的卡片 */
+  cards: [] as Card[],
+  cardsLoading: false,
+  /** 当前笔记的卡片小结（新学 / 到期 / 学习中 / 复习中 / 总数） */
+  cardSummary: null as CardSummary | null,
+  /** 全仓库的卡片计数（左侧「复习」徽标） */
+  cardCounts: null as CardSummary | null,
+  cardFilter: "all" as CardFilter,
+  /** 造卡弹窗；null = 关着 */
+  cardDialog: null as CardDialogState | null,
 });
 
 let toastTimer: number | undefined;
@@ -305,6 +377,371 @@ export async function forgetVault(path: string) {
   if (!store.settings.recentVaults.length) store.settings.lastVault = null;
 }
 
+// ------------------------------------------------------------------ 工作流
+
+/** 本地日期与时间，收件箱按天分文件用得上。 */
+function localStamp() {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return {
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  };
+}
+
+/**
+ * 同步索引并刷新看板数据。
+ * 默认带 2 秒节流，避免来回切视图时反复扫仓库；`force` 用于拖动改状态之后。
+ */
+export async function refreshWorkflow(force = false) {
+  if (!store.vault) return;
+  if (!force && Date.now() - store.workflowSyncedAt < 2000) return;
+  store.workflowLoading = true;
+  try {
+    await api.syncWorkflow();
+    store.workflow = await api.listWorkflow();
+    store.workflowSyncedAt = Date.now();
+  } catch (error) {
+    toast(errorMessage(error));
+  } finally {
+    store.workflowLoading = false;
+  }
+}
+
+/** 改一篇笔记的状态（写回 frontmatter）。 */
+export async function setNoteStatus(path: string, status: NoteStatus) {
+  try {
+    await api.setNoteStatus(path, status);
+    const row = store.workflow.find((note) => note.path === path);
+    if (row) row.status = status;
+    else await refreshWorkflow(true);
+  } catch (error) {
+    toast(errorMessage(error));
+  }
+}
+
+/** 快速捕获：追加到当天的收件箱，然后让文件树把新文件接进来。返回落点路径。 */
+export async function capture(text: string): Promise<string | null> {
+  if (!text.trim()) return null;
+  const { date, time } = localStamp();
+  try {
+    const path = await api.appendInbox(date, time, text.trim());
+    await Promise.all([refreshTree(), refreshNotes(), refreshWorkflow(true)]);
+    toast(`已收进 ${path}`);
+    return path;
+  } catch (error) {
+    toast(errorMessage(error));
+    return null;
+  }
+}
+
+/** 导入材料：选一个文件 → 附件复制进仓库 → 生成材料卡。 */
+export async function importMaterial() {
+  const picked = await openDialog({
+    multiple: false,
+    directory: false,
+    title: "选择要收进仓库的材料",
+    filters: [
+      { name: "材料", extensions: ["mp3", "m4a", "wav", "flac", "mp4", "mkv", "mov", "pdf", "epub", "png", "jpg", "jpeg", "webp", "txt"] },
+      { name: "全部文件", extensions: ["*"] },
+    ],
+  });
+  if (typeof picked !== "string") return;
+  const { date } = localStamp();
+  try {
+    const path = await api.importMaterial(picked, date);
+    await Promise.all([refreshTree(), refreshNotes(), refreshWorkflow(true)]);
+    await openNote(path);
+    toast("材料已收进 00-输入/材料");
+  } catch (error) {
+    toast(errorMessage(error));
+  }
+}
+
+// ------------------------------------------------------------------ 复习（P1）
+
+const currentReviewCard = computed<DueCard | null>(
+  () => store.reviewQueue[store.reviewIndex] ?? null,
+);
+
+export { currentReviewCard };
+
+/** 刷新复习概况（侧栏徽标用）。 */
+export async function refreshReviewStats() {
+  if (!store.vault) return;
+  try {
+    const today = localStamp().date;
+    store.reviewStats = await api.reviewStats(today);
+    // 徽标与右栏小结用的都是"库里到底有多少张卡"，所以顺手一起刷
+    store.cardCounts = await api.cardCounts(today);
+    const perNote = await api.dueByNote(today);
+    const map: Record<string, { due: number; total: number }> = {};
+    for (const row of perNote) map[row.path] = { due: row.due, total: row.total };
+    store.noteDue = map;
+  } catch {
+    /* 库还没建好时忽略 */
+  }
+}
+
+// ------------------------------------------------------------------ 卡片（选中块 → 建卡）
+
+/** 卡片面板现在该显示哪些卡。 */
+export const visibleCards = computed<Card[]>(() => {
+  switch (store.cardFilter) {
+    case "new":
+      return store.cards.filter((card) => card.state === "new");
+    case "due":
+      return store.cards.filter((card) => card.dueNow);
+    case "learning":
+      return store.cards.filter((card) => card.state === "learning" || card.state === "relearning");
+    case "review":
+      return store.cards.filter((card) => card.state === "review");
+    default:
+      return store.cards;
+  }
+});
+
+export function setCardFilter(filter: CardFilter) {
+  store.cardFilter = filter;
+}
+
+/** 刷新当前笔记的卡片与小结（建卡、删卡、复习之后都要叫一次）。 */
+export async function refreshCards() {
+  const path = store.activePath;
+  if (!store.vault || !path) {
+    store.cards = [];
+    store.cardSummary = null;
+    return;
+  }
+  store.cardsLoading = true;
+  try {
+    const today = localStamp().date;
+    const [cards, summary] = await Promise.all([
+      api.listCards(path, today),
+      api.cardSummary(path, today),
+    ]);
+    store.cards = cards;
+    store.cardSummary = summary;
+  } catch {
+    store.cards = [];
+    store.cardSummary = null;
+  } finally {
+    store.cardsLoading = false;
+  }
+}
+
+/** 打开造卡弹窗（内容来自编辑器里的选区）。 */
+export function openCardDialog(blocks: CardCompose[]) {
+  const path = store.activePath;
+  const first = blocks[0];
+  if (!path || !first) return;
+  store.cardDialog = {
+    ...first,
+    path,
+    title: titleOf(path),
+    angle: "回忆",
+    // 答案默认永远是块原文：卡片只是"探询的角度"，知识本体还是那句话
+    answer: first.text,
+    followSource: true,
+    saving: false,
+    extras: blocks.slice(1),
+    withExtras: false,
+  };
+}
+
+export function closeCardDialog() {
+  store.cardDialog = null;
+}
+
+/** 用户改了答案 → 不再跟随块原文。 */
+export function setCardAnswer(value: string) {
+  const dialog = store.cardDialog;
+  if (!dialog) return;
+  dialog.answer = value;
+  dialog.followSource = value.trim() === dialog.text.trim();
+}
+
+/** 把答案拉回块原文。 */
+export function resetCardAnswer() {
+  const dialog = store.cardDialog;
+  if (!dialog) return;
+  dialog.answer = dialog.text;
+  dialog.followSource = true;
+}
+
+/**
+ * 建一条（或多条）卡片。
+ *
+ * 答案留空时由 Rust 侧取块原文——"答案默认是块原文"这条产品规则只写在一处。
+ */
+export async function createCardFromBlocks(
+  blocks: CardCompose[],
+  options: { angle: string; answer: string; followSource: boolean },
+): Promise<number> {
+  if (!blocks.length || !store.activePath) return 0;
+  const today = localStamp().date;
+  let created = 0;
+  let duplicate = 0;
+  for (const block of blocks) {
+    const card: NewCard = {
+      path: store.activePath,
+      kind: "qa",
+      question: block.question.trim(),
+      answer: options.followSource ? "" : options.answer.trim(),
+      angle: options.angle.trim(),
+      sourceText: block.text,
+      sourceHeading: block.heading,
+      sourceLine: block.line,
+    };
+    try {
+      const saved = await api.createCard(card, today);
+      if (saved.created) created += 1;
+      else duplicate += 1;
+    } catch (error) {
+      toast(errorMessage(error));
+      break;
+    }
+  }
+  if (duplicate && !created) toast("这些块已经有同样的卡了");
+  else if (created) toast(`已建 ${created} 张卡${duplicate ? `，${duplicate} 张已存在` : ""}`);
+  await Promise.all([refreshCards(), refreshReviewStats(), refreshWorkflow(true)]);
+  return created;
+}
+
+/** 单块建卡：造卡弹窗的「添加」按钮。 */
+export async function saveCardDialog() {
+  const dialog = store.cardDialog;
+  if (!dialog || dialog.saving) return;
+  if (!dialog.question.trim()) {
+    toast("先写一个问题——卡片就是对这个块的探询");
+    return;
+  }
+  dialog.saving = true;
+  const blocks: CardCompose[] = [{ ...dialog }];
+  if (dialog.withExtras) blocks.push(...dialog.extras);
+  try {
+    await createCardFromBlocks(blocks, {
+      angle: dialog.angle,
+      answer: dialog.answer,
+      followSource: dialog.followSource,
+    });
+    store.cardDialog = null;
+  } finally {
+    if (store.cardDialog) store.cardDialog.saving = false;
+  }
+}
+
+/**
+ * 快速造卡：不弹窗，问题直接用草稿。
+ *
+ * 这是最常用的那条路——选中一句话、按一下键，卡就建好了；想改问法再走弹窗。
+ */
+export async function quickCreateCards(blocks: CardCompose[], angle = "回忆") {
+  if (!blocks.length) return 0;
+  return createCardFromBlocks(blocks, { angle, answer: "", followSource: true });
+}
+
+/** 删卡：只删卡片行，正文一个字都不动。 */
+export async function removeCard(card: Card) {
+  const ok = await askConfirm(
+    "删除卡片",
+    `确定删掉「${card.question}」吗？笔记正文不会动，复习进度会一起没掉。`,
+    "删除",
+    true,
+  );
+  if (!ok) return;
+  try {
+    await api.deleteCard(card.id);
+    await Promise.all([refreshCards(), refreshReviewStats(), refreshWorkflow(true)]);
+  } catch (error) {
+    toast(errorMessage(error));
+  }
+}
+
+/** 复习某一篇笔记的卡片（工作台上的入口）。 */
+export function reviewNote(path: string) {
+  void startReview(path);
+}
+
+/**
+ * 开始复习。`notePath` 不为空时只复习那一篇笔记——
+ * 卡片挂在块上、块属于笔记，所以"按笔记复习"是天然的，而不是硬凑的分组。
+ */
+export async function startReview(notePath?: string) {
+  if (!store.vault) return;
+  store.reviewQueue = [];
+  store.reviewIndex = 0;
+  store.reviewRevealed = false;
+  try {
+    store.reviewQueue = await api.dueCards(localStamp().date, undefined, notePath ?? null);
+    store.reviewScope = notePath ?? null;
+    store.reviewIndex = 0;
+    store.showReview = true;
+    store.showWorkbench = false;
+  } catch (error) {
+    toast(errorMessage(error));
+  }
+}
+
+export function revealAnswer() {
+  store.reviewRevealed = true;
+}
+
+export function closeReview() {
+  store.showReview = false;
+  void refreshReviewStats();
+  void refreshWorkflow(true);
+}
+
+/** 评分并前进；打「重来」的卡排到本轮末尾再出现一次。 */
+export async function gradeCurrent(rating: 1 | 2 | 3 | 4) {
+  const card = currentReviewCard.value;
+  if (!card || store.reviewAnswering) return;
+  store.reviewAnswering = true;
+  try {
+    await api.gradeCard(card.id, rating, localStamp().date);
+    if (rating === 1) {
+      store.reviewQueue.push(card);
+    }
+    store.reviewIndex += 1;
+    store.reviewRevealed = false;
+    if (store.reviewIndex >= store.reviewQueue.length) closeReview();
+    else void refreshReviewStats();
+  } catch (error) {
+    toast(errorMessage(error));
+  } finally {
+    store.reviewAnswering = false;
+  }
+}
+
+/** 撤销最近一次评分（回到上一张）。 */
+export async function undoGrade() {
+  const card = currentReviewCard.value;
+  if (!card) return;
+  try {
+    await api.undoGrade(card.id);
+    store.reviewRevealed = false;
+  } catch (error) {
+    toast(errorMessage(error));
+  }
+}
+
+/** 切换笔记时自动跟上卡片数据（面板没开就不白读一遍库）。 */
+function watchActiveNote() {
+  watch(
+    () => store.activePath,
+    () => {
+      if (store.settings.showRightPanel) void refreshCards();
+      else {
+        store.cards = [];
+        store.cardSummary = null;
+      }
+    },
+  );
+}
+
+watchActiveNote();
+
 // ------------------------------------------------------------------ 标签页
 
 export function activateTab(path: string) {
@@ -327,6 +764,8 @@ export function revealInTree(path: string) {
 }
 
 export async function openNote(path: string, line?: number) {
+  // 不管从哪儿打开的，都切回编辑器视图（工作台只是"一屏概览"）
+  store.showWorkbench = false;
   const existing = store.tabs.find((t) => t.path === path);
   if (existing) {
     store.activePath = path;

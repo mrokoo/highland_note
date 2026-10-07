@@ -6,8 +6,10 @@ import { redo, redoDepth, selectAll, undo, undoDepth } from "@codemirror/command
 import { createEditor, type EditorHandle } from "../lib/editor";
 import {
   activeTab,
+  openCardDialog,
   openMenu,
   openWikilink,
+  quickCreateCards,
   saveActive,
   store,
   updateActiveContent,
@@ -15,6 +17,7 @@ import {
 import { resolveAssetUrl } from "../lib/assets";
 import { renderMarkdown } from "../lib/markdown";
 import { copyText, readClipboardText } from "../lib/clipboard";
+import { blocksFromSelection, type SelectedBlock } from "../lib/blocks";
 import {
   deleteSelection,
   insertAtCursor,
@@ -74,6 +77,89 @@ function scrollToLine(line: number) {
  */
 function resolveImage(url: string): string | null {
   return resolveAssetUrl(url, activeTab.value?.path);
+}
+
+/** 造卡范围：优先用选区，没选中就用光标所在的那一段。 */
+function selectedBlocks(target: EditorView): SelectedBlock[] {
+  const state = target.state;
+  const range = state.selection.main;
+  return blocksFromSelection(state.doc.toString(), range.from, range.to);
+}
+
+/**
+ * 标记块（`Ctrl+Shift+B`）：给选中的每一段补一个 `^id`。
+ *
+ * 卡片自带快照，本来不需要正文配合；这个动作是给**你**用的——
+ * 显出"这句已经成块了"，也让 `^id` 可以在双链里被引用。已经有 id 的块不动（幂等）。
+ */
+function markBlocks(target: EditorView) {
+  const state = target.state;
+  const blocks = selectedBlocks(target);
+  const inserts: { pos: number; insert: string }[] = [];
+  const used = new Set<string>();
+  const seed = activeTab.value?.path ?? "";
+
+  for (const block of blocks) {
+    const line = state.doc.line(Math.max(1, Math.min(block.line, state.doc.lines)));
+    if (/\^[A-Za-z0-9][\w-]*\s*$/.test(line.text)) continue;
+    let id = blockIdFor(`${seed}:${block.line}:${block.text}`);
+    while (used.has(id)) id = `${id}x`;
+    used.add(id);
+    inserts.push({ pos: line.to, insert: ` ^${id}` });
+  }
+
+  if (!inserts.length) {
+    store.toast = "这些段落已经有块 id 了";
+    return;
+  }
+  // 从后往前插入，前面的偏移才不会被自己改动
+  inserts.sort((a, b) => b.pos - a.pos);
+  target.dispatch({
+    changes: inserts.map(({ pos, insert }) => ({ from: pos, to: pos, insert })),
+    selection: { anchor: inserts[inserts.length - 1].pos + inserts[inserts.length - 1].insert.length },
+    scrollIntoView: true,
+  });
+  store.toast = `已标记 ${inserts.length} 个块`;
+}
+
+/** 选区 → 造卡弹窗的数据。快照在这一刻就固定下来。 */
+function selectionToCompose(blocks: SelectedBlock[]) {
+  return blocks.map((block) => ({
+    text: block.text,
+    heading: block.heading,
+    line: block.line,
+    question: block.question,
+  }));
+}
+
+/** 造卡（`Ctrl+Shift+C`）：先把改动落盘，再按选区建卡。 */
+async function addCards(target: EditorView) {
+  const blocks = selectedBlocks(target);
+  if (!blocks.length) {
+    store.toast = "先选中一段笔记，再按 Ctrl+Shift+C";
+    return;
+  }
+  // 库里没有块，卡片只认笔记 + 快照，所以先把当前内容存下来再建卡
+  await saveActive();
+  openCardDialog(selectionToCompose(blocks));
+}
+
+/** 快速造卡：不弹窗，问题直接用草稿。 */
+async function quickAddCards(target: EditorView) {
+  const blocks = selectedBlocks(target);
+  if (!blocks.length) {
+    store.toast = "先选中一段笔记，再按 Ctrl+Shift+C";
+    return;
+  }
+  await saveActive();
+  await quickCreateCards(selectionToCompose(blocks));
+}
+
+/** 块的稳定短 id：`^` + 8 位哈希。 */
+function blockIdFor(seed: string): string {
+  let hash = 5381;
+  for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) + hash + seed.charCodeAt(i)) >>> 0;
+  return hash.toString(36).padStart(8, "0");
 }
 
 /** 编辑器里的右键菜单：编辑命令 + Markdown 排版。 */
@@ -137,6 +223,24 @@ function editorMenu(event: MouseEvent, target: EditorView) {
       },
     },
     { separator: true },
+    {
+      label: "标记为块",
+      shortcut: "Ctrl+Shift+B",
+      disabled: !activeTab.value,
+      action: () => markBlocks(target),
+    },
+    {
+      label: "为选中的块造卡…",
+      shortcut: "Ctrl+Shift+C",
+      disabled: !activeTab.value,
+      action: () => void addCards(target),
+    },
+    {
+      label: "快速造卡（问题用草稿）",
+      disabled: !activeTab.value,
+      action: () => void quickAddCards(target),
+    },
+    { separator: true },
     { label: "加粗", action: () => wrapSelection(target, "**") },
     { label: "斜体", action: () => wrapSelection(target, "*") },
     { label: "删除线", action: () => wrapSelection(target, "~~") },
@@ -170,6 +274,12 @@ onMounted(() => {
       store.cursor = info;
     },
     onWikilink: (target) => void openWikilink(target),
+    onExtractBlock: () => {
+      if (view) markBlocks(view);
+    },
+    onAddCard: () => {
+      if (view) void addCards(view);
+    },
     imageSource: resolveImage,
     renderTable: (source) => renderMarkdown(source),
   });
