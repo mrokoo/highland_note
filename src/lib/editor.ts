@@ -19,6 +19,7 @@ import {
 import {
   EditorState,
   Compartment,
+  Prec,
   StateField,
   StateEffect,
   type Extension,
@@ -26,7 +27,7 @@ import {
   type Text,
 } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage, insertNewlineContinueMarkupCommand } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import {
   syntaxHighlighting,
@@ -425,6 +426,15 @@ function buildLivePreview(
           const first = state.doc.lineAt(node.from).number;
           const last = state.doc.lineAt(Math.min(node.to, state.doc.length)).number;
           for (let number = first; number <= last; number += 1) codeLines.add(number);
+          /*
+           * 收尾的围栏行（``` 那一行）在源码里必须占一行，但它是空的：
+           * 单独标出来，让它不编辑时收掉高度——否则代码块下面会多出一条空白。
+           * 缩进式代码块（CodeBlock）没有围栏，自然也不会走到这里。
+           */
+          const lastLine = state.doc.line(last);
+          if (/^(?:\s*)(?:`{3,}|~{3,})\s*$/.test(lastLine.text)) {
+            block.add(state.doc, lastLine.from, "cm-code-line-end");
+          }
           return;
         }
         if (name === "Blockquote") {
@@ -468,7 +478,16 @@ function buildLivePreview(
         // 列表符号：无序的换成圆点，有序的淡淡地显示序号
         if (name === "ListMark") {
           if (/^[-*+]$/.test(state.sliceDoc(node.from, node.to))) {
-            replace(node.from, node.to, Decoration.replace({ widget: new BulletWidget() }));
+            /*
+             * 待办行的圆点不要：那一行已经有复选框了，前面再顶个「•」是多余的，
+             * 还会把复选框比正文多推进去一截。方括号那一段由第二趟换成复选框。
+             */
+            const isTask = /^\s*[-*+]\s+\[[ xX]\]/.test(line.text);
+            replace(
+              node.from,
+              node.to,
+              isTask ? Decoration.replace({}) : Decoration.replace({ widget: new BulletWidget() }),
+            );
           } else {
             marks.push(Decoration.mark({ class: "cm-list-number" }).range(node.from, node.to));
           }
@@ -992,14 +1011,34 @@ class BlockHandle {
     const centerY = box ? box.top + box.height / 2 : (coords.top + coords.bottom) / 2;
     this.overlay.style.top = `${Math.round(centerY - host.top - height / 2)}px`;
     /*
-     * 水平方向：整块放到正文左边，右边缘离文字起点留 4px。
+     * 水平方向：整块放到这一块的左边，右边缘离「块自己的左边缘」4px。
      *
-     * `coords.left` 是文字的左边缘，不减掉手柄自身的宽度，两个按钮就正好
-     * 压在行首两个字上（「+」盖住第一个字，「⋮⋮」盖住第二个）。
+     * 基准不能只用 coords.left（那是**文字**的左边缘）：引用块的竖条、代码块的
+     * 面板都比文字更靠左，按文字算手柄就压在竖条和面板上了。差多少由行上的
+     * --block-handle-shift 给出（见主题里那组变量）。
+     *
+     * 不减掉手柄自身的宽度，两个按钮就正好压在行首两个字上；
      * 左边缘兜到 0：窗口窄的时候宁可贴着编辑器左边，也不要被 overflow 切掉一半。
      */
-    this.overlay.style.left = `${Math.round(Math.max(0, coords.left - host.left - width - 4))}px`;
+    const edgeShift = this.handleShift(element);
+    this.overlay.style.left = `${Math.round(
+      Math.max(0, coords.left - host.left - width - 4 - edgeShift),
+    )}px`;
     this.overlay.style.visibility = "";
+  }
+
+  /**
+   * 这一块的手柄还要再往左让多少像素。
+   *
+   * 引用块的竖条、代码块的面板都比文字更靠左，手柄得退到它们外面去；
+   * 让多少由主题按块写在 `--block-handle-shift` 上（默认 0）。
+   * 量不出来就按 0 处理：宁可手柄贴得近一点，也不要为了一个读不到的值把它甩到别处去。
+   */
+  private handleShift(element: HTMLElement | null): number {
+    if (!element) return 0;
+    const raw = getComputedStyle(element).getPropertyValue("--block-handle-shift");
+    const shift = Number.parseFloat(raw);
+    return Number.isFinite(shift) ? Math.max(0, shift) : 0;
   }
 
   private hide() {
@@ -1267,11 +1306,12 @@ function baseTheme(dark: boolean): Extension {
        * z-index: 0 让行自己成为层叠上下文，衬底的 z-index: -1 才不会沉到
        * .cm-editor 的不透明底色后面去。
        *
-       * --block-text-start / --block-text-end 是「文字在行里的左右边界」，
+       * --block-text-start / --block-text-end 是「文字在行里的左右边界」（相对 padding box），
+       * --block-handle-shift 是「手柄还要再往左让多少像素」（引用竖条、代码面板比文字宽出来的部分），
        * --block-band-top / --block-band-bottom 是「高亮衬底相对整块要收掉多少」：
        * 默认 0（衬底就是整块），只有标题那种「上方留了一大段块间距」的行才收，
-       * 好让衬底围着文字上下等距。列表缩进、引用竖条各自覆写这些值，
-       * 衬底就自动跟着对齐。
+       * 好让衬底围着文字上下等距。列表缩进、引用竖条、代码面板各自覆写这些值，
+       * 衬底与手柄就自动跟着对齐。
        */
       ".cm-line": {
         padding: "0 var(--block-padding-x)",
@@ -1280,6 +1320,8 @@ function baseTheme(dark: boolean): Extension {
         lineHeight: "var(--editor-line-height)",
         "--block-text-start": "var(--block-padding-x)",
         "--block-text-end": "var(--block-padding-x)",
+        // 默认：块的左边缘就是文字的左边缘（手柄不用额外让位）
+        "--block-handle-shift": "0px",
         "--block-band-top": "0px",
         "--block-band-bottom": "0px",
       },
@@ -1348,14 +1390,18 @@ function baseTheme(dark: boolean): Extension {
       },
 
       /*
-       * 悬停 / 光标所在行 = 画在行底下的一层衬底（::before），不是直接给行上底色。
+       * 光标所在行 = 画在行底下的一层衬底（::before），不是直接给行上底色。
        *
        * 直接给行上底色、再用 background-clip: content-box 收边的话，灰底的四边
        * 就等于文字盒的四边：文字紧贴灰边，圆角也被字压住看不出弧度。
-       * 画成衬底就能比文字四周各让出 --block-inset-x，圆角也才显出来；
-       * 左右按 --block-text-start / --block-text-end 定位（列表缩进、引用竖条
-       * 各写各的），上下按 --block-band-top / --block-band-bottom 定位。
+       * 画成衬底就能比文字四周各让出 --block-inset-x，圆角也才显出来。
        *
+       * 定位原点是行的 **padding box**（绝对定位子元素的包含块 = 最近的定位祖先的
+       * padding 边）：正文、列表没有边框，padding box 就是行框；引用块有 3px 竖条
+       * （border），padding box 从竖条右侧起——引用那几个变量就是按这个原点写的。
+       *
+       * 左右按 --block-text-start / --block-text-end 定位，上下按
+       * --block-band-top / --block-band-bottom 定位。
        * 「悬停」那一版（:hover::before）已按需求取消：鼠标扫过不再有底色。
        * 现在只有光标所在行会亮起，圆角与过渡仍取全局变量。
        */
@@ -1436,14 +1482,20 @@ function baseTheme(dark: boolean): Extension {
       ".cm-task-done": { color: "var(--text-faint)" },
 
       // ---- 引用：左侧竖条，整块连成一条 ----
-      // 文字实际从「32px 外缩进 + 3px 竖条 + 12px 内边距」处开始，右边只有 14px
+      /*
+       * 定位原点是 padding box（竖条是 border，在它左边 3px），所以这里都按
+       * 「竖条右侧」来算：文字从 12px（= 自己的左内边距）开始，竖条在 -3px 处。
+       * 衬底于是落在文字左边 6px（正好贴着竖条外面）；
+       * 手柄还要多让 15px（12px 内边距 + 3px 竖条），退到竖条外面 4px。
+       */
       ".cm-quote-line": {
         borderLeft: "3px solid var(--border-strong)",
         padding: "var(--block-padding-y) 14px var(--block-padding-y) 12px",
         marginLeft: "var(--block-padding-x)",
         color: "var(--text-muted)",
-        "--block-text-start": "calc(var(--block-padding-x) + 15px)",
+        "--block-text-start": "12px",
         "--block-text-end": "14px",
+        "--block-handle-shift": "15px",
       },
       // 首尾两行的额外内边距同样收进衬底，引用块的高亮也上下等距
       ".cm-quote-line-first": {
@@ -1537,28 +1589,55 @@ function baseTheme(dark: boolean): Extension {
        *
        * 正文换成正文字体后，代码块里的等宽字体得在这里显式写回来——
        * 不写的话 `const box = ...` 会跟着正文一起变成无衬线，代码就散了。
-       * 它自己带底色，所以不吃上面那套 content-box 裁剪：底色要铺满整行，
-       * 整段看起来才是一块面板；圆角只给首尾两行收边。
+       *
+       * 面板底色和别的灰底一样画在衬底上（::before），不再铺满整行：
+       * 铺满整行的话它比正文块宽出左右各 32px，在一页里看着就是「这块特别宽」。
+       * 现在它和别的灰底用同一套左右内缩（文字 ∓ --block-inset-x），宽度就一致了。
        */
       ".cm-code-line": {
-        backgroundColor: "var(--code-bg)",
         fontFamily: "var(--font-mono)",
         fontSize: "0.9em",
         transition: "var(--block-transition)",
+        /*
+         * 面板比别的灰底再往外让一点：代码块左右得有点留白，只让 6px 的话
+         * 代码会紧贴面板边缘。手柄的让位量跟着这个变量走，不用另写。
+         */
+        "--block-inset-x": "14px",
+        "--block-handle-shift": "var(--block-inset-x)",
+      },
+      ".cm-code-line::before": {
+        backgroundColor: "var(--code-bg)",
+        // 内部各行不收圆角，整段才是一块连续的面板；圆角只给首尾两行
+        borderRadius: "0",
       },
       /*
-       * 首尾两行的 8px 是代码面板自己的上下留白，不是代码行的行高：
-       * 衬底把这段收掉，光标落在代码行上时底色才是围着那行字上下等距的。
+       * 光标落在代码行上：面板底色不能换（换了就断成一条），
+       * 用一层内阴影叠上去，看起来就是同一块面板稍微亮了一点。
        */
-      ".cm-code-line-first": {
-        borderRadius: "var(--block-radius) var(--block-radius) 0 0",
-        paddingTop: "8px",
-        "--block-band-top": "8px",
+      ".cm-code-line.cm-activeLine::before": {
+        backgroundColor: "var(--code-bg)",
+        boxShadow: "inset 0 0 0 999px var(--bg-active-line)",
       },
-      ".cm-code-line-last": {
-        borderRadius: "0 0 var(--block-radius) var(--block-radius)",
-        paddingBottom: "8px",
-        "--block-band-bottom": "8px",
+      /*
+       * 首尾两行的 8px 是代码面板自己的上下留白，属于面板、不是行高：
+       * 衬底照样铺满（--block-band-* 不设偏移），圆角只收首尾。
+       */
+      ".cm-code-line-first": { paddingTop: "8px" },
+      ".cm-code-line-last": { paddingBottom: "8px" },
+      /*
+       * 收尾围栏行是空的（```），让它别占一整行：代码块下面就不会多出一块空白。
+       * 光标停上去时要恢复正常——那一行是你改围栏的地方，得看得见、点得到。
+       * 字号和行高都要压成 0：CodeMirror 给被替换掉的片段套了个行内占位元素，
+       * 只压行高的话，它的字身框照样撑出十几像素。
+       */
+      ".cm-code-line-end:not(.cm-activeLine)": { lineHeight: "0", fontSize: "0px" },
+      ".cm-code-line-first::before": {
+        borderTopLeftRadius: "var(--block-radius)",
+        borderTopRightRadius: "var(--block-radius)",
+      },
+      ".cm-code-line-last::before": {
+        borderBottomLeftRadius: "var(--block-radius)",
+        borderBottomRightRadius: "var(--block-radius)",
       },
       /*
        * 折叠槽：平时完全空着。
@@ -1763,6 +1842,20 @@ function buildExtensions(options: EditorOptions, compartments: EditorCompartment
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     EditorView.lineWrapping,
     placeholder("开始输入… 支持 Markdown、[[双链]] 与 #标签"),
+    /*
+     * 回车：markdown() 自己会装一张键位表（Prec.high），把 Enter 绑到
+     * insertNewlineContinueMarkup。那条命令在「光标停在空的列表项上」时有个
+     * 默认行为：只要这一项不是列表的第一项、上一行又不是空行，它就先往这一项
+     * **上面**插一个空行，把紧凑列表变松——在笔记里看着就是「按一下回车多出一行
+     * 空的」，而且那个空条目还留在原地。同一个命令把 nonTightLists 关掉就老实了：
+     * 空条目上回车一律删掉标记、就此收尾这个列表。
+     * 用 Prec.highest 是为了盖过 markdown() 那张表。
+     */
+    Prec.highest(
+      keymap.of([
+        { key: "Enter", run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+      ]),
+    ),
     keymap.of([
       // RNote 的两个动作：块与卡片。放在默认键位表最前面，先被它们接住
       {
