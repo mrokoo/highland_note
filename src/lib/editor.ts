@@ -377,8 +377,9 @@ function buildLivePreview(
       const line = state.doc.line(number);
       if (inSkipped(line.from, line.to)) continue;
 
-      // 空行压扁：渲染出来是段间距，而不是空一整行
-      if (!line.text.trim() && !selectionTouchesLine(state, line.from, line.to)) {
+      // 空行压扁：渲染出来是段间距，而不是空一整行。
+      // 这里刻意不看光标：空行没有「源码」可露，压缩与否跟着选区变会让行高忽高忽低。
+      if (!line.text.trim()) {
         lines.push(Decoration.line({ class: "cm-blank-line" }).range(line.from));
         continue;
       }

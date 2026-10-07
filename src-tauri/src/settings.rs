@@ -56,10 +56,28 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
+/// 旧版本的标识符里带下划线（`com.zjw.highland_note`），而安装包不允许下划线，
+/// 改成了连字符。这里把旧目录里的设置搬过来，免得用户丢掉主题、最近仓库这些偏好。
+fn migrate_legacy_settings(path: &PathBuf) {
+    if path.exists() {
+        return;
+    }
+    let Some(dir) = path.parent() else { return };
+    let Some(parent) = dir.parent() else { return };
+    let legacy = parent.join("com.zjw.highland_note").join("settings.json");
+    if !legacy.exists() {
+        return;
+    }
+    if let Err(error) = fs::copy(&legacy, path) {
+        eprintln!("迁移旧设置失败：{error}");
+    }
+}
+
 pub fn load(app: &AppHandle) -> Settings {
     let Ok(path) = settings_path(app) else {
         return Settings::default();
     };
+    migrate_legacy_settings(&path);
     match fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => Settings::default(),
