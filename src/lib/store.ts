@@ -262,9 +262,23 @@ export function resolveConfirm(value: boolean) {
 export function openMenu(event: MouseEvent, items: MenuItem[]) {
   event.preventDefault();
   event.stopPropagation();
+  setMenu(event.clientX, event.clientY, items);
+}
+
+/**
+ * 按屏幕坐标开菜单。
+ *
+ * 块手柄不是一个鼠标事件（它浮在编辑器上面，位置是算出来的），
+ * 所以走这个入口；右键菜单最终也落在这里。
+ */
+export function openMenuAt(x: number, y: number, items: MenuItem[]) {
+  setMenu(x, y, items);
+}
+
+function setMenu(x: number, y: number, items: MenuItem[]) {
   const usable = items.filter((item) => item.separator || item.label);
   if (!usable.some((item) => !item.separator)) return;
-  store.menu = { x: event.clientX, y: event.clientY, items: usable };
+  store.menu = { x, y, items: usable };
 }
 
 export function closeMenu() {

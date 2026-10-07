@@ -8,6 +8,7 @@ import {
   activeTab,
   openCardDialog,
   openMenu,
+  openMenuAt,
   openWikilink,
   quickCreateCards,
   saveActive,
@@ -154,6 +155,19 @@ async function quickAddCards(target: EditorView) {
   await quickCreateCards(selectionToCompose(blocks));
 }
 
+/**
+ * 块菜单里的「为这一块造卡」：先把光标放到那一行，再走和 Ctrl+Shift+C
+ * 完全一样的路。与其为菜单写第二遍造卡逻辑，不如把光标挪过去复用。
+ */
+async function addCardsForLine(line: number) {
+  const target = view;
+  if (!target) return;
+  const doc = target.state.doc;
+  const at = doc.line(Math.max(1, Math.min(line, doc.lines)));
+  target.dispatch({ selection: { anchor: at.from } });
+  await addCards(target);
+}
+
 /** 块的稳定短 id：`^` + 8 位哈希。 */
 function blockIdFor(seed: string): string {
   let hash = 5381;
@@ -280,6 +294,16 @@ onMounted(() => {
     },
     imageSource: resolveImage,
     renderTable: (source) => renderMarkdown(source),
+    /*
+     * 块手柄的菜单：编辑器给的坐标是相对编辑器左上角的，这里翻成屏幕坐标
+     * 交给统一的自定义菜单。菜单项本身就是 MenuItem 的形状，直接用。
+     */
+    onBlockMenu: (request) => {
+      const rect = view?.dom.getBoundingClientRect();
+      if (!rect) return;
+      openMenuAt(rect.left + request.x, rect.top + request.y, request.items);
+    },
+    onAddCardForLine: (line) => void addCardsForLine(line),
   });
   view = handle.view;
   mountedPath = store.activePath ?? "";

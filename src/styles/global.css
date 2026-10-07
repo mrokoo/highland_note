@@ -1,7 +1,38 @@
 :root {
   --font-ui: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "JetBrains Mono", "Courier New", monospace;
+  /*
+   * 编辑器正文用字体。和 --font-ui 分开是为了留出退路：
+   * 哪天想换回等宽（或做成设置项），只改这一处就够。
+   */
+  --font-text: var(--font-ui);
   --editor-max-width: 780px;
+  /*
+   * 编辑器排版尺度：字号、正文行高、块内边距、块的圆角。
+   *
+   * 编辑区（CodeMirror 主题）、预览区（.markdown-body）取的是同一组值：
+   * 「编辑 / 分栏 / 预览」三种视图下字号、行距和留白必须一致，否则切一下
+   * 就像换了另一篇排版。字号还会被设置里的「字号」覆盖（App.vue 写在 --editor-font-size 上）。
+   *
+   * 行高分两档不是偷懒：标题的字号是 1.25–1.875em，跟着正文的 1.7 会散开，
+   * 所以标题单独收紧一档；正文、列表、待办、引用、代码、空行全部用同一个值。
+   */
+  --editor-font-size: 16px;
+  --editor-line-height: 1.7;
+  --editor-heading-line-height: 1.3;
+  /* 块（正文/列表/待办/引用/空行）的左右与上下内边距 */
+  --block-padding-x: 32px;
+  --block-padding-y: 3px;
+  /*
+   * 灰底比文字再往外探出的那一点 = 灰底自己的内边距。
+   * 灰底是画在行底下的一层衬底（见编辑器主题里的 .cm-line::before），
+   * 有了它，文字四周才不会紧贴灰边，圆角也才看得出来。
+   */
+  --block-inset-x: 6px;
+  /* 半透明灰底的统一圆角：悬停高亮、光标行、代码块、行内代码 */
+  --block-radius: 6px;
+  /* 灰底出现/消失的过渡：光标在行间移动时跟着它淡入淡出 */
+  --block-transition: background-color 0.12s ease, color 0.12s ease;
   --radius: 6px;
 }
 
@@ -12,7 +43,8 @@
   --bg-panel: #2b2b2b;
   --bg-hover: #ffffff14;
   --bg-active: #ffffff1f;
-  --bg-active-line: #ffffff09;
+  /* 光标所在行的底色：只当路标用，不能盖过文字 */
+  --bg-active-line: #ffffff07;
   --border: #363636;
   --border-strong: #454545;
   --text: #d4d4d4;
@@ -39,7 +71,7 @@
   --bg-panel: #fbfbfc;
   --bg-hover: #0000000d;
   --bg-active: #00000014;
-  --bg-active-line: #00000006;
+  --bg-active-line: #00000005;
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
   --text: #2f2f31;
@@ -1109,8 +1141,10 @@ body.resizing .pane-splitter::after {
 .markdown-body {
   max-width: var(--editor-max-width);
   margin: 0 auto;
-  padding: 24px 32px 40vh;
-  line-height: 1.75;
+  /* 和编辑区同一套尺度（见 :root）：字号、行高、左右内边距都取同一组变量 */
+  padding: 24px var(--block-padding-x) 40vh;
+  font-size: var(--editor-font-size);
+  line-height: var(--editor-line-height);
   color: var(--text);
   word-wrap: break-word;
 }
@@ -1127,7 +1161,7 @@ body.resizing .pane-splitter::after {
 .markdown-body h6 {
   color: var(--text-strong);
   margin: 1.6em 0 0.6em;
-  line-height: 1.3;
+  line-height: var(--editor-heading-line-height);
 }
 
 .markdown-body h1 {
@@ -1167,7 +1201,7 @@ body.resizing .pane-splitter::after {
 .markdown-body .wikilink {
   color: var(--accent);
   background: var(--accent-bg);
-  border-radius: 4px;
+  border-radius: var(--block-radius);
   padding: 1px 4px;
   cursor: pointer;
 }
@@ -1209,13 +1243,13 @@ body.resizing .pane-splitter::after {
   background: var(--code-bg);
   color: var(--code-text);
   padding: 0.15em 0.4em;
-  border-radius: 4px;
+  border-radius: var(--block-radius);
 }
 
 .markdown-body pre {
   background: var(--code-bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--block-radius);
   padding: 12px 14px;
   overflow: auto;
 }
@@ -1224,8 +1258,8 @@ body.resizing .pane-splitter::after {
   background: none;
   color: var(--text);
   padding: 0;
-  font-size: 0.88em;
-  line-height: 1.6;
+  font-size: 0.9em;
+  line-height: var(--editor-line-height);
 }
 
 .markdown-body table {
@@ -1233,13 +1267,15 @@ body.resizing .pane-splitter::after {
   width: 100%;
   display: block;
   overflow: auto;
+  font-size: 0.94em;
 }
 
 .markdown-body th,
 .markdown-body td {
   border: 1px solid var(--border);
-  padding: 6px 12px;
+  padding: 8px 12px;
   text-align: left;
+  vertical-align: top;
 }
 
 .markdown-body th {
@@ -1255,7 +1291,7 @@ body.resizing .pane-splitter::after {
 
 .markdown-body img {
   max-width: 100%;
-  border-radius: var(--radius);
+  border-radius: var(--block-radius);
 }
 
 .markdown-body input[type="checkbox"] {

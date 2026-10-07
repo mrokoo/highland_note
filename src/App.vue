@@ -164,6 +164,11 @@ function blockNativeMenu(event: Event) {
 
 const rootStyle = computed(() => ({
   "--editor-max-width": store.settings.editorWidth > 0 ? `${store.settings.editorWidth}px` : "780px",
+  /*
+   * 字号写成变量挂在整个应用上：编辑区（CodeMirror 主题）和预览区
+   * （.markdown-body）都读它，设置里改字号时两边一起动。
+   */
+  "--editor-font-size": `${store.settings.fontSize}px`,
 }));
 
 function nextTab(delta: number) {

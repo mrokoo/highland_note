@@ -233,15 +233,24 @@ fn strip_role_headers(body: &str) -> String {
 }
 
 /// 连续空行压成一个空行，首尾空白去掉。
+///
+/// 只动**空行**：一行非空行后面紧跟另一行非空行时，中间照旧只有一个换行。
+/// 从前这里无条件补 `\n\n`，等于把每一行都当成一个段落——表格（表头/分隔行/
+/// 数据行必须连着写）、代码块、引用块一经保存就被空行拆散，再打开已经不是
+/// 原来那篇笔记了。
 fn normalize_blank_lines(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+    let mut blank = false;
     for line in text.lines() {
         if line.trim().is_empty() {
-            continue; // 空行不写出去，段落之间统一补一个
+            // 行首的空行丢掉；中间的空行攒着，等下一行非空行来了再补一个
+            blank = !out.is_empty();
+            continue;
         }
         if !out.is_empty() {
-            out.push_str("\n\n");
+            out.push_str(if blank { "\n\n" } else { "\n" });
         }
+        blank = false;
         out.push_str(line.trim_end());
     }
     out

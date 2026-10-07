@@ -91,6 +91,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
+    v-if="store.menu"
     ref="panel"
     class="context-menu"
     :class="{ ready }"
