@@ -529,19 +529,29 @@ function baseTheme(dark: boolean): Extension {
       ".cm-code-line": { backgroundColor: "var(--code-bg)" },
       ".cm-code-line-first": { borderRadius: "8px 8px 0 0", paddingTop: "5px" },
       ".cm-code-line-last": { borderRadius: "0 0 8px 8px", paddingBottom: "5px" },
-      // 折叠槽：窄一点，标记平时不显示，只在悬停折叠槽或光标所在行出现
-      ".cm-foldGutter": { width: "13px" },
+      /*
+       * 折叠槽：平时完全空着。
+       *
+       * 从前"光标所在行"也会把箭头亮出来，结果一打开笔记、光标落在第一行，
+       * 左边就常挂着一块灰方块，像是界面没对齐。现在只有真的把鼠标移到这一槽
+       * 才显形；键盘用户用 Ctrl+Shift+[ / ] 折叠，不需要靠这个箭头。
+       */
+      ".cm-foldGutter": { width: "14px" },
       ".cm-foldGutter .cm-gutterElement": { opacity: "0", transition: "opacity 0.12s" },
       ".cm-foldGutter:hover .cm-gutterElement": { opacity: "1" },
-      ".cm-foldGutter .cm-gutterElement.cm-activeLineGutter": { opacity: "1" },
+      ".cm-foldGutter .cm-gutterElement:hover": { opacity: "1" },
       ".cm-fold-marker": {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
+        width: "12px",
+        height: "12px",
+        borderRadius: "3px",
         color: "var(--text-faint)",
         cursor: "pointer",
+        transition: "color 0.12s, background 0.12s",
       },
-      ".cm-fold-marker:hover": { color: "var(--accent)" },
+      ".cm-fold-marker:hover": { background: "var(--bg-hover)", color: "var(--text-strong)" },
       ".cm-quote-line": {
         borderLeft: "3px solid var(--border-strong)",
         paddingLeft: "14px",
